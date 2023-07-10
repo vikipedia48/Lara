@@ -5,7 +5,7 @@ Supported formats are currently: GeoTiff, GeoJson and CSV.
 ## GeoTiff
 The user can convert a GeoTiff image to a regular PNG image. This is intended only for those images that contain numeric values instead of RGB pixels and are therefore unreadable by image editors.
 
-![image](https://github.com/vikipedia48/GeoConverter/assets/37978310/10f5c1ba-7970-4dbf-9df2-398fa294efb1)
+![image](https://github.com/vikipedia48/Lara/assets/37978310/75312394-2abd-4fba-9659-4c703487cc19)
 
 ### Methods of conversion
 There are 5 different output modes.
@@ -42,6 +42,8 @@ Image scaling is exclusive with tiling.
 ## CSV
 The user can convert a CSV file that contains geo-coordinates to a PNG. The file must, at the least, contain two columns which represent x and y components. The user must specify the indexes of these x and y columns (starting with 0) used in the file. The program will then read the points defined by x and y and place them on the image.
 
+![image](https://github.com/vikipedia48/Lara/assets/37978310/db12aee8-e7c8-460d-b827-9b1dc2df8b3d)
+
 ### Styles
 Each CSV point can (or rather must) have a style with which it will be drawn on the image. The style is defined by shape type, shape size, shape color and center color.
 
@@ -64,6 +66,8 @@ The user can manually set the x and y coordinates which serve as boundaries for 
 
 ## GeoJson
 The user can convert a GeoJson file to a PNG. 
+
+![image](https://github.com/vikipedia48/Lara/assets/37978310/d91d22ef-a7fe-4de1-8ad7-ded0e1794b4f)
 
 ### Styles
 Each GeoJson feature can (or rather must) have a style with which it will be drawn on the image. Unlike CSV conversion, the style is defined only by a single color.
