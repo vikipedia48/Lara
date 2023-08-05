@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>518</width>
-    <height>660</height>
+    <width>520</width>
+    <height>659</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -85,8 +85,8 @@
          <rect>
           <x>0</x>
           <y>0</y>
-          <width>421</width>
-          <height>153</height>
+          <width>423</width>
+          <height>152</height>
          </rect>
         </property>
         <layout class="QVBoxLayout" name="verticalLayout_3">
@@ -310,7 +310,7 @@ border-radius:6%;</string>
           </sizepolicy>
          </property>
          <property name="decimals">
-          <number>16</number>
+          <number>8</number>
          </property>
          <property name="minimum">
           <double>-100000000.000000000000000</double>
@@ -336,7 +336,7 @@ border-radius:6%;</string>
           </sizepolicy>
          </property>
          <property name="decimals">
-          <number>16</number>
+          <number>8</number>
          </property>
          <property name="minimum">
           <double>-100000000.000000000000000</double>
@@ -359,7 +359,7 @@ border-radius:6%;</string>
           </sizepolicy>
          </property>
          <property name="decimals">
-          <number>16</number>
+          <number>8</number>
          </property>
          <property name="minimum">
           <double>-100000000.000000000000000</double>
@@ -385,7 +385,7 @@ border-radius:6%;</string>
           </sizepolicy>
          </property>
          <property name="decimals">
-          <number>16</number>
+          <number>8</number>
          </property>
          <property name="minimum">
           <double>-100000000.000000000000000</double>

@@ -1,4 +1,4 @@
-#include "configurergbform.h"
+﻿#include "configurergbform.h"
 #include "qjsonarray.h"
 #include "qjsondocument.h"
 #include "qjsonobject.h"
@@ -602,11 +602,13 @@ bool ConfigureRGBForm::getPropertiesFromGeoJson(const QString &path, QJsonObject
         if (!document.isObject()) throw std::invalid_argument("document isn't an object");
         auto jsonObj = document.object();
         auto features = jsonObj["features"];
-        if (features == QJsonValue::Undefined || !features.isArray()) throw std::invalid_argument("invalid ""features"" object");
-        auto firstFeature = features.toArray()[0];
-        if (firstFeature == QJsonValue::Undefined || !firstFeature.isObject()) throw std::invalid_argument("first object in ""features"" is invalid");
-        auto properties = firstFeature.toObject()["properties"];
-        if (properties == QJsonValue::Undefined || !properties.isObject()) throw std::invalid_argument("first object in ""features"" has invalid ""properties""");
+        if (features == QJsonValue::Undefined || !features.isArray()) throw std::invalid_argument("invalid \"features\" object");
+        auto _array = features.toArray();
+        auto firstFeature = _array.at(0);
+        if (firstFeature == QJsonValue::Undefined || !firstFeature.isObject()) throw std::invalid_argument("first object in \"features\" is invalid");
+        auto _firstObj = firstFeature.toObject();
+        auto properties = _firstObj["properties"];
+        if (properties == QJsonValue::Undefined || !properties.isObject()) throw std::invalid_argument("first object in \"features\" has invalid \"properties\"");
         outputProperties = properties.toObject();
     } catch (std::invalid_argument e) {
         Gui::ThrowError("Error reading GeoJson: " + QString(e.what()));

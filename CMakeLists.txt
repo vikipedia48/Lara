@@ -21,6 +21,7 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets)
 find_package(Threads REQUIRED)
 find_package(SQLite3 REQUIRED)
 
+
 set(interface
     tifffunctions.h
     qtfunctions.h

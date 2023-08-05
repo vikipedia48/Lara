@@ -1084,7 +1084,7 @@ std::vector<std::unique_ptr<Shape::Shape> > ImageConverter::getAllShapesFromJson
         auto jsonObj = document.object();
 
         auto _features = jsonObj["features"];
-        if (_features == QJsonValue::Undefined || !_features.isArray()) throw std::invalid_argument("invalid ""features"" object");
+        if (_features == QJsonValue::Undefined || !_features.isArray()) throw std::invalid_argument("invalid \"features\" object");
         auto features = _features.toArray();
         auto _properties = std::vector<QJsonObject>(features.size());
 
@@ -1096,19 +1096,17 @@ std::vector<std::unique_ptr<Shape::Shape> > ImageConverter::getAllShapesFromJson
                 size_t threadBegin = (float)i/threadCount*features.size();
                 size_t threadEnd = (float)(i+1)/threadCount*features.size();
                 for (auto index = threadBegin; index < threadEnd; ++index) {
-                    if (!features[index].isObject()) throw std::invalid_argument("found invalid object at index " + std::to_string(index));
-                    auto featureObject = features[index].toObject();
-
+                    auto _feats = features.at(index);
+                    if (!_feats.isObject()) throw std::invalid_argument("found invalid object at index " + std::to_string(index));
+                    auto featureObject = _feats.toObject();
                     auto properties = featureObject["properties"];
-                    if (properties == QJsonValue::Undefined || !properties.isObject()) throw std::invalid_argument("invalid ""properties"" object at index " + std::to_string(index));
+                    if (properties == QJsonValue::Undefined || !properties.isObject()) throw std::invalid_argument("invalid \"properties\" object at index " + std::to_string(index));
                     _properties[index] = properties.toObject();
 
                     if (featureObject.contains("geometries")) { // GeometryCollection
-
-                        if (!featureObject.value("geometries").isArray()) throw std::invalid_argument("invalid ""geometries"" array at index " + std::to_string(index));
-                        auto _geometries = featureObject["geometries"];
-                        if (_geometries == QJsonValue::Undefined || !_geometries.isArray()) throw std::invalid_argument("invalid ""geometries"" array at index " + std::to_string(index));
-                        auto geometries = _geometries.toArray();
+                        auto _geoms = featureObject.value("geometries");
+                        if (!_geoms.isArray() || _geoms == QJsonValue::Undefined) throw std::invalid_argument("invalid \"geometries\" array at index " + std::to_string(index));
+                        auto geometries = _geoms.toArray();
 
                         for (const auto geometry : geometries) {
                             auto shape = getShapeFromJson(geometry);
@@ -1128,7 +1126,8 @@ std::vector<std::unique_ptr<Shape::Shape> > ImageConverter::getAllShapesFromJson
                     }
 
                     else if (featureObject.contains("geometry")) {
-                        auto shape = getShapeFromJson(featureObject.value("geometry"));
+                        auto _geom = featureObject.value("geometry");
+                        auto shape = getShapeFromJson(_geom);
                         if (shape == nullptr) throw std::invalid_argument("invalid geometric shape at index " + std::to_string(index));
                         if (boundariesNotSet) {
                             auto geomBounds = shape->getBoundaries();
@@ -1143,7 +1142,7 @@ std::vector<std::unique_ptr<Shape::Shape> > ImageConverter::getAllShapesFromJson
                         rv.push_back(std::move(shape));
                     }
 
-                    else throw std::invalid_argument("object at index " + std::to_string(index) + " that doesn't contain geometry or geometries");
+                    else throw std::invalid_argument("object at index " + std::to_string(index) + " doesn't contain geometry or geometries");
 
                     if (i == 0) {
                         float br = (float)index+1;

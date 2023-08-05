@@ -305,12 +305,12 @@ void Shape::Polygon::drawShape(cimg_library::CImg<unsigned char> *img, const col
     std::map<std::pair<unsigned int, unsigned int>, std::array<unsigned char,4>> nonNullValues;
     if (!interiorRings.empty()) {
         auto exteriorRingBounds = exteriorRing.getBoundaries();
-        std::uint32_t minX = std::round(Util::Remap(exteriorRingBounds.minX, minX, maxX, 0, width-1));
-        std::uint32_t minY = std::round(Util::Remap(exteriorRingBounds.minY, minY, maxY, 0, height-1));
-        std::uint32_t maxX = std::round(Util::Remap(exteriorRingBounds.maxX, minX, maxX, 0, width-1));
-        std::uint32_t maxY = std::round(Util::Remap(exteriorRingBounds.maxY, minY, maxY, 0, height-1));
-        for (auto y = minY; y <= maxY; ++y) {
-            for (auto x = minX; x <= maxX; ++x) {
+        std::uint32_t _minX = std::round(Util::Remap(exteriorRingBounds.minX, minX, maxX, 0, width-1));
+        std::uint32_t _minY = std::round(Util::Remap(exteriorRingBounds.minY, minY, maxY, 0, height-1));
+        std::uint32_t _maxX = std::round(Util::Remap(exteriorRingBounds.maxX, minX, maxX, 0, width-1));
+        std::uint32_t _maxY = std::round(Util::Remap(exteriorRingBounds.maxY, minY, maxY, 0, height-1));
+        for (auto y = _minY; y <= _maxY; ++y) {
+            for (auto x = _minX; x <= _maxX; ++x) {
                 if ((*img)(x,y,0,0) == 0 && (*img)(x,y,0,1) == 0 && (*img)(x,y,0,2) == 0 && (*img)(x,y,0,3) == 0) continue;
                 nonNullValues.insert({{x,y}, {(*img)(x,y,0,0),(*img)(x,y,0,1),(*img)(x,y,0,2),(*img)(x,y,0,3)}});
             }

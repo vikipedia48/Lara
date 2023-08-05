@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>552</width>
-    <height>617</height>
+    <width>555</width>
+    <height>620</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -262,7 +262,7 @@ border-radius:6%;</string>
           </sizepolicy>
          </property>
          <property name="decimals">
-          <number>16</number>
+          <number>8</number>
          </property>
          <property name="minimum">
           <double>-100000000.000000000000000</double>
@@ -288,7 +288,7 @@ border-radius:6%;</string>
           </sizepolicy>
          </property>
          <property name="decimals">
-          <number>16</number>
+          <number>8</number>
          </property>
          <property name="minimum">
           <double>-100000000.000000000000000</double>
@@ -311,7 +311,7 @@ border-radius:6%;</string>
           </sizepolicy>
          </property>
          <property name="decimals">
-          <number>16</number>
+          <number>8</number>
          </property>
          <property name="minimum">
           <double>-100000000.000000000000000</double>
@@ -337,7 +337,7 @@ border-radius:6%;</string>
           </sizepolicy>
          </property>
          <property name="decimals">
-          <number>16</number>
+          <number>8</number>
          </property>
          <property name="minimum">
           <double>-100000000.000000000000000</double>
