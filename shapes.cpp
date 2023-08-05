@@ -1,7 +1,9 @@
 #include "shapes.h"
+#include "consts.h"
 #include "qjsonarray.h"
 #include <cfloat>
 
+#define SIZE(wkbType) 16+8*(uint32_t)(((uint32_t)wkbType+1000)/2000)
 
 Shape::GeometryType Shape::geometryTypeFromString(const QString &str)
 {
@@ -34,13 +36,30 @@ Util::Boundaries Shape::Point::getBoundaries()
 
 void Shape::Point::drawShape(cimg_library::CImg<unsigned char> *img, const color &color, const GeoJsonConvertParams& params)
 {
-    auto minX = params.boundaries.value().minX;
-    auto maxX = params.boundaries.value().maxX;
-    auto minY = params.boundaries.value().minY;
-    auto maxY = params.boundaries.value().maxY;
+    drawShape(img, color, params.boundaries.value(), params.width, params.height);
+}
+
+void Shape::Point::drawShape(cimg_library::CImg<unsigned char>* img, const color& color, const Util::Boundaries& boundaries, uint32_t width, uint32_t height) {
+    auto minX = boundaries.minX;
+    auto maxX = boundaries.maxX;
+    auto minY = boundaries.minY;
+    auto maxY = boundaries.maxY;
     if (x < minX || x > maxX || y < minY || y > maxY) return;
-    img->draw_point(std::round(Util::Remap(x, minX, maxX, 0, params.width-1)),
-                    std::round(Util::Remap(y, minY, maxY, 0, params.height-1)), color.data());
+    img->draw_point(std::round(Util::Remap(x, minX, maxX, 0, width-1)),
+                    std::round(Util::Remap(y, minY, maxY, 0, height-1)), color.data());
+}
+
+void Shape::Point::loadFromBlob(std::vector<unsigned char> &blob, size_t& startPos)
+{
+    bool littleEndian = blob[startPos] != 0;
+    startPos+=1;
+    uint32_t wkbType;
+    Util::copyBytesToVar(blob, startPos, &wkbType, littleEndian);
+    startPos+=4;
+    auto coordinate = Coordinate(blob, startPos, littleEndian);
+    startPos+=SIZE(wkbType);
+    x = coordinate.x;
+    y = coordinate.y;
 }
 
 Shape::MultiPoint::MultiPoint(const QJsonValue &coordinates) : Shape(GeometryType::MultiPoint)
@@ -58,6 +77,7 @@ Shape::MultiPoint::MultiPoint(const QJsonValue &coordinates) : Shape(GeometryTyp
     }
 }
 
+
 Util::Boundaries Shape::MultiPoint::getBoundaries()
 {
     Util::Boundaries rv = {std::numeric_limits<double>::max(),std::numeric_limits<double>::lowest(),std::numeric_limits<double>::max(),std::numeric_limits<double>::lowest()};
@@ -72,8 +92,30 @@ Util::Boundaries Shape::MultiPoint::getBoundaries()
 
 void Shape::MultiPoint::drawShape(cimg_library::CImg<unsigned char> *img, const color &color, const GeoJsonConvertParams& params)
 {
+    drawShape(img, color, params.boundaries.value(), params.width, params.height);
+}
+
+void Shape::MultiPoint::drawShape(cimg_library::CImg<unsigned char> *img, const color &color, const Util::Boundaries &boundaries, uint32_t width, uint32_t height)
+{
     for (auto& v : points) {
-        v.drawShape(img, color, params);
+        v.drawShape(img, color, boundaries, width, height);
+    }
+}
+
+void Shape::MultiPoint::loadFromBlob(std::vector<unsigned char> &blob, size_t &startPos)
+{
+    bool littleEndian = blob[startPos] != 0;
+    startPos+=1;
+    uint32_t wkbType;
+    Util::copyBytesToVar(blob, startPos, &wkbType, littleEndian);
+    startPos+=4;
+    uint32_t numPoints;
+    Util::copyBytesToVar(blob, startPos, &numPoints, littleEndian);
+    startPos+=4;
+    for (auto i = 0; i < numPoints; ++i) {
+        auto point = Point();
+        point.loadFromBlob(blob, startPos);
+        points.push_back(std::move(point));
     }
 }
 
@@ -92,6 +134,13 @@ Shape::LineString::LineString(const QJsonValue &coordinates) : Shape(GeometryTyp
     }
 }
 
+Shape::LineString::LineString(LinearRing &&ring) : Shape(GeometryType::LineString)
+{
+    for (auto& v : ring.points) {
+        points.emplace_back(Point(v.x,v.y));
+    }
+}
+
 Util::Boundaries Shape::LineString::getBoundaries()
 {
     Util::Boundaries rv = {std::numeric_limits<double>::max(),std::numeric_limits<double>::lowest(),std::numeric_limits<double>::max(),std::numeric_limits<double>::lowest()};
@@ -106,20 +155,42 @@ Util::Boundaries Shape::LineString::getBoundaries()
 
 void Shape::LineString::drawShape(cimg_library::CImg<unsigned char> *img, const color &color, const GeoJsonConvertParams& params)
 {
+    drawShape(img, color, params.boundaries.value(), params.width, params.height);
+}
+
+void Shape::LineString::drawShape(cimg_library::CImg<unsigned char> *img, const color &color, const Util::Boundaries &boundaries, uint32_t width, uint32_t height)
+{
     if (points.size() < 2) return;
-    auto minX = params.boundaries.value().minX;
-    auto maxX = params.boundaries.value().maxX;
-    auto minY = params.boundaries.value().minY;
-    auto maxY = params.boundaries.value().maxY;
+    auto minX = boundaries.minX;
+    auto maxX = boundaries.maxX;
+    auto minY = boundaries.minY;
+    auto maxY = boundaries.maxY;
 
     for (auto i = 0; i < points.size()-1; ++i) {
         if (points[i].x < minX || points[i].x > maxX || points[i].y < minY || points[i].y > maxY) continue;
         if (points[i+1].x < minX || points[i+1].x > maxX || points[i+1].y < minY || points[i+1].y > maxY) continue;
-        auto x0 = std::round(Util::Remap(points[i].x, minX, maxX, 0, params.width-1));
-        auto y0 = std::round(Util::Remap(points[i].y, minY, maxY, 0, params.height-1));
-        auto x1 = std::round(Util::Remap(points[i+1].x, minX, maxX, 0, params.width-1));
-        auto y1 = std::round(Util::Remap(points[i+1].y, minY, maxY, 0, params.height-1));
+        auto x0 = std::round(Util::Remap(points[i].x, minX, maxX, 0, width-1));
+        auto y0 = std::round(Util::Remap(points[i].y, minY, maxY, 0, height-1));
+        auto x1 = std::round(Util::Remap(points[i+1].x, minX, maxX, 0, width-1));
+        auto y1 = std::round(Util::Remap(points[i+1].y, minY, maxY, 0, height-1));
         img->draw_line(x0, y0, x1, y1, color.data());
+    }
+}
+
+void Shape::LineString::loadFromBlob(std::vector<unsigned char> &blob, size_t &startPos)
+{
+    bool littleEndian = blob[startPos] != 0;
+    startPos+=1;
+    uint32_t wkbType;
+    Util::copyBytesToVar(blob, startPos, &wkbType, littleEndian);
+    startPos+=4;
+    uint32_t numPoints;
+    Util::copyBytesToVar(blob, startPos, &numPoints, littleEndian);
+    startPos+=4;
+    for (auto i = 0; i < numPoints; ++i) {
+        auto coordinate = Coordinate(blob, startPos, littleEndian);
+        startPos+=SIZE(wkbType);
+        points.emplace_back(Point(coordinate.x, coordinate.y));
     }
 }
 
@@ -158,6 +229,30 @@ void Shape::MultiLineString::drawShape(cimg_library::CImg<unsigned char> *img, c
     }
 }
 
+void Shape::MultiLineString::drawShape(cimg_library::CImg<unsigned char> *img, const color &color, const Util::Boundaries &boundaries, uint32_t width, uint32_t height)
+{
+    for (auto& v : lines) {
+        v.drawShape(img, color, boundaries, width, height);
+    }
+}
+
+void Shape::MultiLineString::loadFromBlob(std::vector<unsigned char> &blob, size_t &startPos)
+{
+    bool littleEndian = blob[startPos] != 0;
+    startPos+=1;
+    uint32_t wkbType;
+    Util::copyBytesToVar(blob, startPos, &wkbType, littleEndian);
+    startPos+=4;
+    uint32_t numPoints;
+    Util::copyBytesToVar(blob, startPos, &numPoints, littleEndian);
+    startPos+=4;
+    for (auto i = 0; i < numPoints; ++i) {
+        auto lineString = LineString();
+        lineString.loadFromBlob(blob, startPos);
+        lines.push_back(std::move(lineString));
+    }
+}
+
 Shape::Polygon::Polygon(const QJsonValue &coordinates) : Shape(GeometryType::Polygon)
 {
     try {
@@ -185,18 +280,23 @@ Util::Boundaries Shape::Polygon::getBoundaries()
 
 void Shape::Polygon::drawShape(cimg_library::CImg<unsigned char> *img, const color &color, const GeoJsonConvertParams& params)
 {
-    auto minX = params.boundaries.value().minX;
-    auto maxX = params.boundaries.value().maxX;
-    auto minY = params.boundaries.value().minY;
-    auto maxY = params.boundaries.value().maxY;
+    drawShape(img, color, params.boundaries.value(), params.width, params.height);
+}
+
+void Shape::Polygon::drawShape(cimg_library::CImg<unsigned char> *img, const color &color, const Util::Boundaries &boundaries, uint32_t width, uint32_t height)
+{
+    auto minX = boundaries.minX;
+    auto maxX = boundaries.maxX;
+    auto minY = boundaries.minY;
+    auto maxY = boundaries.maxY;
 
     auto bounds = getBoundaries();
     if (bounds.minX < minX || bounds.maxX > maxX || bounds.minY < minY || bounds.maxY > maxY) return;
 
     cimg_library::CImg<int> points(exteriorRing.points.size(), 2);
     for (auto i = 0; i < exteriorRing.points.size(); ++i) {
-        auto x = std::round(Util::Remap(exteriorRing.points[i].x, minX, maxX, 0, params.width-1));
-        auto y = std::round(Util::Remap(exteriorRing.points[i].y, minY, maxY, 0, params.height-1));
+        auto x = std::round(Util::Remap(exteriorRing.points[i].x, minX, maxX, 0, width-1));
+        auto y = std::round(Util::Remap(exteriorRing.points[i].y, minY, maxY, 0, height-1));
         points(i,0) = x;
         points(i,1) = y;
     }
@@ -205,10 +305,10 @@ void Shape::Polygon::drawShape(cimg_library::CImg<unsigned char> *img, const col
     std::map<std::pair<unsigned int, unsigned int>, std::array<unsigned char,4>> nonNullValues;
     if (!interiorRings.empty()) {
         auto exteriorRingBounds = exteriorRing.getBoundaries();
-        std::uint32_t minX = std::round(Util::Remap(exteriorRingBounds.minX, minX, maxX, 0, params.width-1));
-        std::uint32_t minY = std::round(Util::Remap(exteriorRingBounds.minY, minY, maxY, 0, params.height-1));
-        std::uint32_t maxX = std::round(Util::Remap(exteriorRingBounds.maxX, minX, maxX, 0, params.width-1));
-        std::uint32_t maxY = std::round(Util::Remap(exteriorRingBounds.maxY, minY, maxY, 0, params.height-1));
+        std::uint32_t minX = std::round(Util::Remap(exteriorRingBounds.minX, minX, maxX, 0, width-1));
+        std::uint32_t minY = std::round(Util::Remap(exteriorRingBounds.minY, minY, maxY, 0, height-1));
+        std::uint32_t maxX = std::round(Util::Remap(exteriorRingBounds.maxX, minX, maxX, 0, width-1));
+        std::uint32_t maxY = std::round(Util::Remap(exteriorRingBounds.maxY, minY, maxY, 0, height-1));
         for (auto y = minY; y <= maxY; ++y) {
             for (auto x = minX; x <= maxX; ++x) {
                 if ((*img)(x,y,0,0) == 0 && (*img)(x,y,0,1) == 0 && (*img)(x,y,0,2) == 0 && (*img)(x,y,0,3) == 0) continue;
@@ -224,8 +324,8 @@ void Shape::Polygon::drawShape(cimg_library::CImg<unsigned char> *img, const col
     for (auto& v : interiorRings) {
         cimg_library::CImg<int> points(v.points.size(), 2);
         for (auto i = 0; i < v.points.size(); ++i) {
-            int x = std::round(Util::Remap(v.points[i].x, minX, maxX, 0, params.width-1));
-            int y = std::round(Util::Remap(v.points[i].y, minY, maxY, 0, params.height-1));
+            int x = std::round(Util::Remap(v.points[i].x, minX, maxX, 0, width-1));
+            int y = std::round(Util::Remap(v.points[i].y, minY, maxY, 0, height-1));
             points(i,0) = x;
             points(i,1) = y;
         }
@@ -235,10 +335,10 @@ void Shape::Polygon::drawShape(cimg_library::CImg<unsigned char> *img, const col
         if (nonNullValues.empty()) continue;
 
         auto interiorRingBounds = v.getBoundaries();
-        std::uint32_t _minX = Util::Remap(interiorRingBounds.minX, minX, maxX, 0, params.width-1);
-        std::uint32_t _minY = Util::Remap(interiorRingBounds.minY, minY, maxY, 0, params.height-1);
-        std::uint32_t _maxX = Util::Remap(interiorRingBounds.maxX, minX, maxX, 0, params.width-1);
-        std::uint32_t _maxY = Util::Remap(interiorRingBounds.maxY, minY, maxY, 0, params.height-1);
+        std::uint32_t _minX = Util::Remap(interiorRingBounds.minX, minX, maxX, 0, width-1);
+        std::uint32_t _minY = Util::Remap(interiorRingBounds.minY, minY, maxY, 0, height-1);
+        std::uint32_t _maxX = Util::Remap(interiorRingBounds.maxX, minX, maxX, 0, width-1);
+        std::uint32_t _maxY = Util::Remap(interiorRingBounds.maxY, minY, maxY, 0, height-1);
         for (auto it = nonNullValues.begin(); it != nonNullValues.end(); ++it) {
             auto point = it->first;
             if (point.first < _minX || point.first > _maxX || point.second < _minY || point.second > _maxY) continue;
@@ -250,6 +350,24 @@ void Shape::Polygon::drawShape(cimg_library::CImg<unsigned char> *img, const col
                 (*img)(point.first,point.second,0,3) = color[3];
             }
         }
+    }
+}
+
+void Shape::Polygon::loadFromBlob(std::vector<unsigned char> &blob, size_t &startPos)
+{
+    bool littleEndian = blob[startPos] != 0;
+    startPos+=1;
+    uint32_t wkbType;
+    Util::copyBytesToVar(blob, startPos, &wkbType, littleEndian);
+    startPos+=4;
+    uint32_t numPoints;
+    Util::copyBytesToVar(blob, startPos, &numPoints, littleEndian);
+    startPos+=4;
+    auto ring = LinearRing(blob, startPos, wkbType, littleEndian);
+    exteriorRing = LineString(std::move(ring));
+    for (auto i = 1; i < numPoints; ++i) {
+        auto interiorRing = LinearRing(blob, startPos, wkbType, littleEndian);
+        interiorRings.emplace_back(LineString(std::move(interiorRing)));
     }
 }
 
@@ -287,4 +405,55 @@ void Shape::MultiPolygon::drawShape(cimg_library::CImg<unsigned char> *img, cons
     }
 }
 
+void Shape::MultiPolygon::drawShape(cimg_library::CImg<unsigned char> *img, const color &color, const Util::Boundaries &boundaries, uint32_t width, uint32_t height)
+{
+    for (auto& v : polygons) {
+        v.drawShape(img, color, boundaries, width, height);
+    }
+}
 
+void Shape::MultiPolygon::loadFromBlob(std::vector<unsigned char> &blob, size_t &startPos)
+{
+    bool littleEndian = blob[startPos] != 0;
+    startPos+=1;
+    uint32_t wkbType;
+    Util::copyBytesToVar(blob, startPos, &wkbType, littleEndian);
+    startPos+=4;
+    uint32_t numPoints;
+    Util::copyBytesToVar(blob, startPos, &numPoints, littleEndian);
+    startPos+=4;
+    for (auto i = 0; i < numPoints; ++i) {
+        auto polygon = Polygon();
+        polygon.loadFromBlob(blob, startPos);
+        polygons.push_back(std::move(polygon));
+    }
+}
+
+std::unique_ptr<Shape::Shape> Shape::fromWkbType(uint32_t wkbType)
+{
+    switch(wkbType) {
+        case Gpkg::wkbPoint: case Gpkg::wkbPointZ: case Gpkg::wkbPointM: case Gpkg::wkbPointZM: return std::unique_ptr<Shape>(new Point());
+        case Gpkg::wkbMultiPoint: case Gpkg::wkbMultiPointZ: case Gpkg::wkbMultiPointM: case Gpkg::wkbMultiPointZM: return std::unique_ptr<Shape>(new MultiPoint());
+        case Gpkg::wkbPolygon: case Gpkg::wkbPolygonZ: case Gpkg::wkbPolygonM: case Gpkg::wkbPolygonZM: return std::unique_ptr<Shape>(new Polygon());
+        case Gpkg::wkbMultiPolygon: case Gpkg::wkbMultiPolygonZ: case Gpkg::wkbMultiPolygonM: case Gpkg::wkbMultiPolygonZM: return std::unique_ptr<Shape>(new MultiPolygon());
+        case Gpkg::wkbLineString: case Gpkg::wkbLineStringZ: case Gpkg::wkbLineStringM: case Gpkg::wkbLineStringZM: return std::unique_ptr<Shape>(new LineString());
+        case Gpkg::wkbMultiLineString: case Gpkg::wkbMultiLineStringZ: case Gpkg::wkbMultiLineStringM: case Gpkg::wkbMultiLineStringZM: return std::unique_ptr<Shape>(new MultiLineString());
+        default: throw std::invalid_argument("Unsupported geometry type found");
+    }
+}
+
+Shape::Coordinate::Coordinate(std::vector<unsigned char> &blob, size_t startPos, bool littleEndian)
+{
+    Util::copyBytesToVar(blob, startPos, &x, littleEndian);
+    Util::copyBytesToVar(blob, startPos+8, &y, littleEndian);
+}
+
+Shape::LinearRing::LinearRing(std::vector<unsigned char> &blob, size_t& startPos, uint32_t wkbType, bool littleEndian)
+{
+    Util::copyBytesToVar(blob, startPos, &numPoints, littleEndian);
+    startPos+=4;
+    for (auto i = 0; i < numPoints; ++i) {
+        points.push_back(Coordinate(blob, startPos, littleEndian));
+        startPos+=SIZE(wkbType);
+    }
+}

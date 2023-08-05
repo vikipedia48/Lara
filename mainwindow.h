@@ -23,6 +23,8 @@ private slots:
 
     void on_actionGeoJson_triggered();
 
+    void on_actionGeoPackage_triggered();
+
 private:
     Ui::MainWindow *ui;
     QWidget* currentWindow;

@@ -24,8 +24,8 @@ CSVWindow::CSVWindow(QWidget *parent) :
 
 CSVWindow::~CSVWindow()
 {
+    configWindow->close();
     delete ui;
-    delete configWindow;
 }
 
 #define displayProgressBar(desc) Util::displayProgressBar(ui->progressBar, ui->label_progress, desc);
@@ -58,7 +58,8 @@ void CSVWindow::on_pushButton_configure_clicked()
             return;
         }
     }
-    this->configWindow = new ConfigureRGBForm(ui->lineEdit_inputPath->text(), Util::OutputMode::RGB_Points);
+    if (params.has_value()) this->configWindow = new ConfigureRGBForm(ui->lineEdit_inputPath->text(), Util::OutputMode::RGB_Points, params.value());
+    else this->configWindow = new ConfigureRGBForm(ui->lineEdit_inputPath->text(), Util::OutputMode::RGB_Points);
     connect(configWindow,SIGNAL(sendCsvParams(const CsvConvertParams&)),this,SLOT(receiveCsvParameters(const CsvConvertParams&)));
     connect(configWindow,SIGNAL(sendPreviewRequest(const CsvConvertParams&)),this,SLOT(receivePreviewRequest(const CsvConvertParams&)));
     configWindow->show();
@@ -75,6 +76,10 @@ void CSVWindow::on_pushButton_reset_clicked()
 {
     if (!Gui::GiveQuestion("Are you sure you want to reset your settings?")) {
         return;
+    }
+    if (configWindow != nullptr) {
+        configWindow->close();
+        configWindow = nullptr;
     }
     params.reset();
     ui->lineEdit_inputPath->clear();

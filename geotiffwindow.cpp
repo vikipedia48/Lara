@@ -22,8 +22,8 @@ GeotiffWindow::GeotiffWindow(QWidget *parent) :
 
 GeotiffWindow::~GeotiffWindow()
 {
+    configWindow->close();
     delete ui;
-    delete configWindow;
 }
 
 #define displayProgressBar(desc) Util::displayProgressBar(ui->progressBar, ui->label_progress, desc);
@@ -98,7 +98,8 @@ void GeotiffWindow::on_pushButton_outputModeConfigure_clicked()
                     return;
                 }
             }
-            this->configWindow = new ConfigureRGBForm(ui->lineEdit_inputFile->text(), getOutputModeSelected());
+            if (parameters.colorValues.has_value()) this->configWindow = new ConfigureRGBForm(ui->lineEdit_inputFile->text(), getOutputModeSelected(), parameters);
+            else this->configWindow = new ConfigureRGBForm(ui->lineEdit_inputFile->text(), getOutputModeSelected());
             connect(configWindow,SIGNAL(sendColorValues(const std::map<double,color>&)),this,SLOT(receiveColorValues(const std::map<double,color>&)));
             connect(configWindow,SIGNAL(sendGradient(bool)),this,SLOT(receiveGradient(bool)));
             connect(configWindow,SIGNAL(sendPreviewRequest(const std::map<double,color>&, bool)),this,SLOT(receivePreviewRequest(const std::map<double,color>&, bool)));
@@ -135,9 +136,13 @@ void GeotiffWindow::on_pushButton_reset_clicked()
     if (!Gui::GiveQuestion("Are you sure you want to reset your settings?")) {
         return;
     }
-    this->parameters.colorValues.reset();
-    this->parameters.gradient.reset();
-    this->parameters.offset.reset();
+    if (configWindow != nullptr) {
+        configWindow->close();
+        configWindow = nullptr;
+    }
+    parameters.colorValues.reset();
+    parameters.gradient.reset();
+    parameters.offset.reset();
     ui->lineEdit_inputFile->clear();
     ui->pushButton_inputFile->setEnabled(true);
     ui->comboBox_outputMode->setCurrentIndex(0);

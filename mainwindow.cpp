@@ -3,6 +3,7 @@
 #include "geotiffwindow.h"
 #include "csvwindow.h"
 #include "geojsonwindow.h"
+#include "geopackagewindow.h"
 
 
 MainWindow::MainWindow(QWidget *parent)
@@ -51,6 +52,14 @@ void MainWindow::on_actionGeoJson_triggered()
 {
     closeCurrentWindow();
     currentWindow = new GeoJsonWindow();
+    ui->widgetWindow->addWidget(currentWindow, 0, Qt::AlignmentFlag::AlignVCenter);
+    currentWindow->show();
+}
+
+void MainWindow::on_actionGeoPackage_triggered()
+{
+    closeCurrentWindow();
+    currentWindow = new GeoPackageWindow();
     ui->widgetWindow->addWidget(currentWindow, 0, Qt::AlignmentFlag::AlignVCenter);
     currentWindow->show();
 }

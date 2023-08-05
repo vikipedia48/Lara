@@ -1,7 +1,8 @@
-﻿#include "configurergbform.h"
+#include "configurergbform.h"
 #include "qjsonarray.h"
 #include "qjsondocument.h"
 #include "qjsonobject.h"
+#include "sqlite3/sqlite_modern_cpp.h"
 #include "ui_configurergbform.h"
 #include "qtfunctions.h"
 #include "imageconverter.h"
@@ -15,12 +16,94 @@ ConfigureRGBForm::ConfigureRGBForm(QWidget *parent) :
     ui->setupUi(this);
 }
 
-ConfigureRGBForm::ConfigureRGBForm(const QString& inputPath, Util::OutputMode mode, QWidget *parent) : QWidget(parent), ui(new Ui::ConfigureRGBForm), mode(mode)
+ConfigureRGBForm::ConfigureRGBForm(const QString& inputPath, Util::OutputMode mode, QWidget *parent)
+    : QWidget(parent), mode(mode)
 {
+    loadUi(inputPath);
+}
+
+ConfigureRGBForm::ConfigureRGBForm(const QString &inputPath, Util::OutputMode mode, const TiffConvertParams &tiffParams, QWidget *parent)
+    : QWidget(parent), mode(mode)
+{
+    loadUi(inputPath);
+    ui->checkBox_gradient->setChecked(tiffParams.gradient.value_or(false));
+    auto data = TableData(tiffParams);
+    loadTableData(data);
+}
+
+ConfigureRGBForm::ConfigureRGBForm(const QString &inputPath, Util::OutputMode mode, const CsvConvertParams &csvParams, QWidget *parent)
+    : QWidget(parent), mode(mode)
+{
+    loadUi(inputPath);
+    on_pushButton_2_clicked();
+    if (ui->tableWidget->rowCount() == 0) return;
+    QStringList headers;
+    for (auto i = 0; i < ui->tableWidget->columnCount(); ++i) {
+        headers.push_back(ui->tableWidget->horizontalHeaderItem(i)->text());
+    }
+    auto data = TableData(csvParams, headers);
+    loadTableData(data);
+}
+
+ConfigureRGBForm::ConfigureRGBForm(const QString &inputPath, Util::OutputMode mode, const GeoJsonConvertParams &jsonParams, QWidget *parent)
+    : QWidget(parent), mode(mode)
+{
+    loadUi(inputPath);
+    on_pushButton_2_clicked();
+    if (ui->tableWidget->rowCount() == 0) return;
+    QStringList headers;
+    for (auto i = 0; i < ui->tableWidget->columnCount(); ++i) {
+        headers.push_back(ui->tableWidget->horizontalHeaderItem(i)->text());
+    }
+    auto data = TableData(jsonParams, headers);
+    loadTableData(data);
+}
+
+ConfigureRGBForm::ConfigureRGBForm(const QString &inputPath, Util::OutputMode mode, const GeoPackageConvertParams &gpkgParams, QWidget *parent)
+    : QWidget(parent), mode(mode)
+{
+    loadUi(inputPath);
+    on_pushButton_2_clicked();
+    if (tables.empty()) return;
+    for (auto& v : gpkgParams.layerParams.value()) {
+        int index = -1;
+        for (auto i = 0; i < ui->comboBox_gpkgLayer->count(); ++i) {
+            if (ui->comboBox_gpkgLayer->itemText(i).toStdString() == v.first) {
+                index = i;
+                break;
+            }
+        }
+        try {
+            if (index == -1) throw std::invalid_argument("");
+            for (auto i = 0; i < v.second.colors.size(); ++i) {
+                tables[index].cells.emplace_back(std::vector<QString>(tables[index].headers.size()));
+                tables[index].cells[i][0] = Util::colorToString(v.second.colors[i]);
+                if (i == 0) continue;
+                auto headerIndex = std::find(tables[index].headers.begin()+1, tables[index].headers.end(), QString::fromStdString(v.second.columnValues[i].first));
+                if (headerIndex == tables[index].headers.end()) throw std::invalid_argument("");
+                tables[index].cells[i][headerIndex-tables[index].headers.begin()] = QString::fromStdString(v.second.columnValues[i].second);
+            }
+            loadTableData(tables[0]);
+        } catch(std::invalid_argument& e) {
+            tables.clear();
+            ui->comboBox_gpkgLayer->clear();
+            ui->tableWidget->clear();
+            ui->pushButton_2->setEnabled(true);
+            Gui::ThrowError("Error occured while setting previous configurations");
+            return;
+        }
+    }
+}
+
+void ConfigureRGBForm::loadUi(const QString& path)
+{
+    ui = new Ui::ConfigureRGBForm;
     setWindowModality(Qt::WindowModal);
     ui->setupUi(this);
     ui->tableWidget->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     this->setWindowTitle("Configure RGB");
+    ui->label_gpkgLayer->setVisible(false);
+    ui->comboBox_gpkgLayer->setVisible(false);
     auto title = " ", desc = " ";
     switch(mode) {
         case Util::OutputMode::RGB_UserRanges:
@@ -34,17 +117,27 @@ ConfigureRGBForm::ConfigureRGBForm(const QString& inputPath, Util::OutputMode mo
             break;
         case Util::OutputMode::RGB_Points:
             title = "RGB with values from CSV file";
-            desc = "The first row's field !SHAPE COLOR! must be set. This is the default color when none of the other conditions are met or when an error occurs.\n"
+            desc = "The first row's must be set with valid values. This is the default style used when none of the other conditions are met or when an error occurs.\n"
                    "For further instructions, check the README.";
             ui->checkBox_gradient->setVisible(false);
             ui->tableWidget->clear();
             break;
         case Util::OutputMode::RGB_Vector:
             title = "RGB with values from GeoJson file";
-            desc = "The first row must be set with valid values. These are the default values when none of the other conditions are met or when an error occurs.\n"
+            desc = "The first row's !SHAPE COLOR! must be a valid color. This is the default value when none of the other conditions are met or when an error occurs.\n"
                    "For further instructions, check the README.";
             ui->checkBox_gradient->setVisible(false);
             ui->tableWidget->clear();
+            break;
+        case Util::OutputMode::RGB_Gpkg:
+            title = "RGB with values from GeoPackage file";
+            desc = "Style settings can be set for each layer you wish to convert. The first row is always the default color when none of the other conditions are met or when an error occurs.\n"
+                   "You must also set style settings for !ALL LAYERS!. These will be chosen in case an exported layer's settings weren't set.\n"
+                   "For further instructions, check the README.";
+            ui->checkBox_gradient->setVisible(false);
+            ui->tableWidget->clear();
+            ui->label_gpkgLayer->setVisible(true);
+            ui->comboBox_gpkgLayer->setVisible(true);
             break;
         default:
             this->close();
@@ -52,7 +145,7 @@ ConfigureRGBForm::ConfigureRGBForm(const QString& inputPath, Util::OutputMode mo
     }
     ui->label_title->setText(title);
     ui->label_desc->setText(desc);
-    ui->lineEdit->setText(inputPath);
+    ui->lineEdit->setText(path);
     ui->lineEdit->setEnabled(false);
     ui->pushButton_preview->setEnabled(false);
     ui->progressBar->setVisible(false);
@@ -185,7 +278,49 @@ GeoJsonConvertParams ConfigureRGBForm::prepareGeoJsonParams(bool &allOk)
     }
 }
 
+GeoPackageConvertParams ConfigureRGBForm::prepareGpkgParams(bool &allOk)
+{
+    GeoPackageConvertParams rv;
+    std::map<std::string, LayerParams> rvParams;
 
+    if (tables.size() < 2) {
+        // unreachable code, but still
+        allOk = false;
+        return {};
+    }
+
+    {
+        bool ok;
+        Util::stringToColor(tables[0].cells[0][0], ok);
+        if (!ok) {
+            Gui::ThrowError("You must set a proper default color in !ALL LAYERS!");
+            allOk = false;
+            return {};
+        }
+    }
+
+    for (auto i = 0; i < tables.size(); ++i) {
+        try {
+            LayerParams params = tables[i];
+            if (params.colors.empty()) continue;
+            rvParams.insert({ui->comboBox_gpkgLayer->itemText(i).toStdString(), params});
+        } catch(std::invalid_argument e) {
+            allOk = false;
+            Gui::ThrowError(ui->comboBox_gpkgLayer->itemText(i) + ": " + e.what());
+            return {};
+        }
+    }
+
+    if (rvParams.empty()) {
+        allOk = false;
+        Gui::ThrowError("You must configure at least one layer");
+        return {};
+    }
+
+    allOk = true;
+    rv.layerParams = rvParams;
+    return rv;
+}
 
 void ConfigureRGBForm::on_pushButton_ok_clicked()
 {
@@ -201,6 +336,14 @@ void ConfigureRGBForm::on_pushButton_ok_clicked()
         auto params = prepareGeoJsonParams(ok);
         if (!ok) return;
         emit sendGeoJsonParams(params);
+        this->close();
+    }
+    else if (mode == Util::OutputMode::RGB_Gpkg) {
+        tables[currentTableSelected] = TableData(ui->tableWidget);
+        bool ok;
+        auto params = prepareGpkgParams(ok);
+        if (!ok) return;
+        emit sendGpkgParams(params);
         this->close();
     }
     else {
@@ -225,6 +368,7 @@ void ConfigureRGBForm::on_pushButton_2_clicked()
         Gui::ThrowError("No such file exists.");
         return;
     }
+    ui->tableWidget->clearContents();
 
     auto io = ImageConverter();
     connect(&io, &ImageConverter::sendProgress, this, &ConfigureRGBForm::receiveProgressUpdate, Qt::DirectConnection);
@@ -274,6 +418,68 @@ void ConfigureRGBForm::on_pushButton_2_clicked()
         ui->tableWidget->setHorizontalHeaderLabels(headers);
         addNewRowToTable(Util::OutputMode::RGB_Vector);
     }
+    else if (mode == Util::OutputMode::RGB_Gpkg) {
+        try {
+            sqlite::database db(path.toStdString());
+            ui->comboBox_gpkgLayer->clear();
+            ui->comboBox_gpkgLayer->addItem("!ALL LAYERS!");
+            db << "select table_name from gpkg_contents where data_type is 'features';" >> [this](std::string table_name) {
+                ui->comboBox_gpkgLayer->addItem(QString::fromStdString(table_name));
+            };
+            if (ui->comboBox_gpkgLayer->count() == 1) throw std::invalid_argument("");
+            tables = std::vector<TableData>(ui->comboBox_gpkgLayer->count());
+            tables[0] = TableData({"!SHAPE COLOR!", "!GEOMETRY TYPE!", "!LAYER NAME!"});
+            for (auto i = 1; i < ui->comboBox_gpkgLayer->count(); ++i) {
+                auto tableName = ui->comboBox_gpkgLayer->itemText(i).toStdString();
+
+                std::string geomColumn;
+                db << "select column_name from gpkg_geometry_columns where table_name is ?;" << tableName >> geomColumn;
+
+                QStringList headers = {"!SHAPE COLOR!"};
+                db << "select name from pragma_table_info(?) where name is not ?;" << tableName << geomColumn >> [&headers](std::string name) {
+                    headers.push_back(QString::fromStdString(name));
+                };
+                tables[i] = TableData(headers);
+            }
+            ui->comboBox_gpkgLayer->setCurrentIndex(0);
+            currentTableSelected = 0;
+            loadTableData(tables[0]);
+        }
+        catch(std::exception& e) {
+            ui->comboBox_gpkgLayer->clear();
+            tables.clear();
+            Gui::ThrowError("Invalid GeoPackage file");
+            return;
+        }
+    }
+    ui->pushButton_clear->setEnabled(true);
+    ui->pushButton_preview->setEnabled(true);
+    ui->pushButton_ok->setEnabled(true);
+    ui->pushButton_2->setEnabled(false);
+}
+
+void ConfigureRGBForm::loadTableData(const TableData& data)
+{
+    ui->tableWidget->clear();
+    ui->tableWidget->setColumnCount(data.headers.size());
+    ui->tableWidget->setRowCount(0);
+    ui->tableWidget->setHorizontalHeaderLabels(data.headers);
+    if (mode == Util::OutputMode::RGB_UserValues) {
+        for (auto& v : data.cells) addNewRowToTable(v[0],v[1],false);
+    }
+    else if (mode == Util::OutputMode::RGB_UserRanges) {
+        for (auto& v : data.cells) addNewRowToTable(v[0],v[1],false);
+        addNewRowToTable();
+    }
+    else {
+        for (auto r = 0; r < data.cells.size(); ++r) {
+            addNewRowToTable(mode);
+            for (auto c = 0; c < ui->tableWidget->columnCount(); ++c) {
+                ui->tableWidget->item(r,c)->setText(data.cells[r][c]);
+            }
+        }
+        addNewRowToTable(mode);
+    }
     ui->pushButton_clear->setEnabled(true);
     ui->pushButton_preview->setEnabled(true);
     ui->pushButton_ok->setEnabled(true);
@@ -321,7 +527,6 @@ void ConfigureRGBForm::addNewRowToTable(Util::OutputMode pointsMode)
     }
 }
 
-
 std::map<double, color> ConfigureRGBForm::readTable()
 {
     std::map<double,color> colorMap;
@@ -344,15 +549,20 @@ bool ConfigureRGBForm::isRowEmpty(int row)
 
 void ConfigureRGBForm::on_pushButton_preview_clicked()
 {
+    bool ok;
     if (mode == Util::OutputMode::RGB_Points) {
-        bool ok;
         auto params = prepareCsvParams(ok);
         if (!ok) return;
         emit sendPreviewRequest(params);
     }
     else if (mode == Util::OutputMode::RGB_Vector) {
-        bool ok;
         auto params = prepareGeoJsonParams(ok);
+        if (!ok) return;
+        emit sendPreviewRequest(params);
+    }
+    else if (mode == Util::OutputMode::RGB_Gpkg) {
+        tables[currentTableSelected] = TableData(ui->tableWidget);
+        auto params = prepareGpkgParams(ok);
         if (!ok) return;
         emit sendPreviewRequest(params);
     }
@@ -366,7 +576,7 @@ void ConfigureRGBForm::on_pushButton_preview_clicked()
 
 void ConfigureRGBForm::on_tableWidget_cellClicked(int row, int column)
 {
-    if ((mode == Util::OutputMode::RGB_UserRanges || mode == Util::OutputMode::RGB_Vector || mode == Util::OutputMode::RGB_Points) && ui->tableWidget->rowCount() == row+1) addNewRowToTable(mode);
+    if (mode != Util::OutputMode::RGB_UserValues && ui->tableWidget->rowCount() == row+1) addNewRowToTable(mode);
 }
 
 void ConfigureRGBForm::receiveProgressUpdate(uint32_t progress)
@@ -412,5 +622,12 @@ std::vector<std::string> ConfigureRGBForm::getAllCsvColumns(const std::string& p
     rv = doc.GetColumnNames();
     if (rv.empty()) Gui::ThrowError("Invalid csv file");
     return rv;
+}
+
+void ConfigureRGBForm::on_comboBox_gpkgLayer_activated(int index)
+{
+    tables[currentTableSelected] = TableData(ui->tableWidget);
+    currentTableSelected = index;
+    loadTableData(tables[index]);
 }
 

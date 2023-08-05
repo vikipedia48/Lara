@@ -23,8 +23,8 @@ GeoJsonWindow::GeoJsonWindow(QWidget *parent) :
 
 GeoJsonWindow::~GeoJsonWindow()
 {
+    configWindow->close();
     delete ui;
-    delete configWindow;
 }
 
 #define displayProgressBar(desc) Util::displayProgressBar(ui->progressBar, ui->label_progress, desc);
@@ -61,12 +61,12 @@ void GeoJsonWindow::on_pushButton_configure_clicked()
             return;
         }
     }
-    this->configWindow = new ConfigureRGBForm(ui->lineEdit_inputPath->text(), Util::OutputMode::RGB_Vector);
+    if (parameters.has_value()) this->configWindow = new ConfigureRGBForm(ui->lineEdit_inputPath->text(), Util::OutputMode::RGB_Vector, parameters.value());
+    else this->configWindow = new ConfigureRGBForm(ui->lineEdit_inputPath->text(), Util::OutputMode::RGB_Vector);
     connect(configWindow,SIGNAL(sendGeoJsonParams(const GeoJsonConvertParams&)),this,SLOT(receiveParams(const GeoJsonConvertParams&)));
     connect(configWindow,SIGNAL(sendPreviewRequest(const GeoJsonConvertParams&)),this,SLOT(receivePreviewRequest(const GeoJsonConvertParams&)));
     configWindow->show();
 }
-
 
 void GeoJsonWindow::on_pushButton_preview_clicked()
 {
@@ -78,6 +78,10 @@ void GeoJsonWindow::on_pushButton_reset_clicked()
 {
     if (!Gui::GiveQuestion("Are you sure you want to reset your settings?")) {
         return;
+    }
+    if (configWindow != nullptr) {
+        configWindow->close();
+        configWindow = nullptr;
     }
     ui->lineEdit_inputPath->clear();
     ui->pushButton_inputPath->setEnabled(true);

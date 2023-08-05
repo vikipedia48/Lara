@@ -39,4 +39,17 @@ struct GeoJsonConvertParams {
     std::optional<Util::Boundaries> boundaries;
 };
 
+struct LayerParams {
+    std::vector<color> colors;
+    std::vector<std::pair<std::string, std::string>> columnValues;
+};
+
+struct GeoPackageConvertParams {
+    QString inputPath;
+    uint32_t width, height;
+    std::optional<Util::Boundaries> boundaries;
+    std::vector<std::string> selectedLayers;
+    std::optional<std::map<std::string, LayerParams>> layerParams;
+};
+
 #endif // CONVERSIONPARAMETERS_H

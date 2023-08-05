@@ -14,12 +14,12 @@ set(CMAKE_PREFIX_PATH "C:/Program Files (x86)/libpng;C:/Program Files (x86)/tiff
 include(FindZLIB)
 include(FindPNG)
 include(FindTIFF)
-#include(FindSQLite3)
+include(FindSQLite3)
 
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets)
 find_package(Threads REQUIRED)
-#find_package(SQLite3 REQUIRED)
+find_package(SQLite3 REQUIRED)
 
 set(interface
     tifffunctions.h
@@ -34,6 +34,9 @@ set(interface
     shapes.h
     previewtask.h
     imageconverter.h
+    geopackagewindow.h
+    tabledata.h
+    consts.h
 )
 set(src
     tifffunctions.cpp
@@ -45,12 +48,15 @@ set(src
     geojsonwindow.cpp
     shapes.cpp
     imageconverter.cpp
+    geopackagewindow.cpp
+    tabledata.cpp
 )
 set(uis
     configurergbform.ui
     geotiffwindow.ui
     csvwindow.ui
     geojsonwindow.ui
+    geopackagewindow.ui
 )
 
 set(all_src
@@ -91,9 +97,9 @@ target_include_directories(GeotiffConverter_2 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty
     ${PNG_INCLUDE_DIRS}
     ${TIFF_INCLUDE_DIRS}
-    #${SQLite3_INCLUDE_DIRS}
+    ${SQLite3_INCLUDE_DIRS}
 )
-target_link_libraries(GeotiffConverter_2 PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Threads::Threads ZLIB::ZLIB ${PNG_LIBRARIES} ${TIFF_LIBRARIES})# ${SQLite3_LIBRARIES})
+target_link_libraries(GeotiffConverter_2 PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Threads::Threads ZLIB::ZLIB ${PNG_LIBRARIES} ${TIFF_LIBRARIES} ${SQLite3_LIBRARIES})
 
 set_target_properties(GeotiffConverter_2 PROPERTIES
     MACOSX_BUNDLE_GUI_IDENTIFIER my.example.com

@@ -1,5 +1,6 @@
-#include "imageconverter.h"
+﻿#include "imageconverter.h"
 
+#include "consts.h"
 #include "pngfunctions.h"
 #include "qjsonarray.h"
 #include "qjsondocument.h"
@@ -12,7 +13,10 @@
 #include <QFile>
 #include <QJsonObject>
 #include <QThreadPool>
+#include <bitset>
 #include <rapidcsv.h>
+
+#include <sqlite3/sqlite_modern_cpp.h>
 
 
 std::vector<std::vector<std::string> > ImageConverter::getRows(const std::string& path)
@@ -122,6 +126,34 @@ std::unique_ptr<Shape::Shape> ImageConverter::getShapeFromJson(const QJsonValue&
         return nullptr;
     }
     return nullptr;
+}
+
+color ImageConverter::getColorForVectorShape(Shape::Shape *shape, const GeoPackageConvertParams &params, const std::vector<std::string> &properties, const std::string& layerName, const std::vector<std::string>& allColumns)
+{
+    if (params.layerParams.value().count(layerName) == 0) {
+        auto layerParams = params.layerParams.value().at("!ALL LAYERS!");
+        if (layerParams.colors.size() == 1) return layerParams.colors[0];
+        for (auto i = 1; i < layerParams.columnValues.size(); ++i) {
+            if (layerParams.columnValues[i].first == "!LAYER NAME!" && layerName == layerParams.columnValues[i].second) {
+                return layerParams.colors[i];
+            }
+            else if (layerParams.columnValues[i].first == "!GEOMETRY TYPE!" && shape->type == Shape::geometryTypeFromString(QString::fromStdString(layerParams.columnValues[i].second))) {
+                return layerParams.colors[i];
+            }
+        }
+        return layerParams.colors[0];
+    }
+    else {
+        auto layerParams = params.layerParams.value().at(layerName);
+        if (layerParams.colors.size() == 1) return layerParams.colors[0];
+        for (auto i = 1; i < layerParams.columnValues.size(); ++i) {
+            auto it = std::find(allColumns.begin(), allColumns.end(), layerParams.columnValues[i].first);
+            if (properties[it-allColumns.begin()] == layerParams.columnValues[i].second) {
+                return layerParams.colors[i];
+            }
+        }
+        return layerParams.colors[0];
+    }
 }
 
 color ImageConverter::getColorForVectorShape(Shape::Shape* shape, const GeoJsonConvertParams& params, const std::vector<QJsonObject> &properties)
@@ -838,6 +870,199 @@ cimg_library::CImg<uint8_t> ImageConverter::CreateRGB_VectorShapes(GeoJsonConver
     return img;
 }
 
+cimg_library::CImg<uint8_t> ImageConverter::CreateRGB_GeoPackage(GeoPackageConvertParams params, bool flipY)
+{
+    std::vector<std::vector<std::unique_ptr<Shape::Shape>>> allShapes(params.selectedLayers.size());
+    std::vector<std::vector<color>> allColors(params.selectedLayers.size());
+    boolean calculateBoundaries = !params.boundaries.has_value();
+    size_t totalNumberOfShapes = 0;
+
+    for (auto i = 0; i < params.selectedLayers.size(); ++i) {
+        emit sendProgressReset("Processing " + QString::fromStdString(params.selectedLayers[i]) + "...");
+        allShapes[i] = getAllShapesFromLayer(params.inputPath, params.selectedLayers[i], params, allColors[i], calculateBoundaries);
+        totalNumberOfShapes += allShapes[i].size();
+    }
+
+    cimg_library::CImg<uint8_t> img(params.width, params.height, 1, 4);
+    emit sendProgressReset("Creating the image...");
+    size_t counter = 1;
+    for (auto layer = 0; layer < params.selectedLayers.size(); ++layer) {
+        for (auto index = 0; index < allShapes[layer].size(); ++index) {
+            allShapes[layer][index]->drawShape(&img, allColors[layer][index], params.boundaries.value(), params.width, params.height);
+            float br = (float)counter++;
+            float nz = (float)totalNumberOfShapes;
+            emit sendProgress(br/nz*100);
+        }
+    }
+    if (flipY) img.mirror('y');
+    return img;
+}
+
+std::vector<std::unique_ptr<Shape::Shape> > ImageConverter::getAllShapesFromLayer(const QString &path, std::string layerName, GeoPackageConvertParams& params,
+                                                                                  std::vector<color>& outputColors, boolean boundariesNotSet)
+{
+    try {
+        sqlite::database db(path.toStdString());
+
+        Util::Boundaries bounds;
+        if (boundariesNotSet) bounds = {std::numeric_limits<double>::max(), std::numeric_limits<double>::lowest(),std::numeric_limits<double>::max(), std::numeric_limits<double>::lowest()};
+        else bounds = params.boundaries.value();
+
+        std::string geomColumn;
+        db << "select column_name from gpkg_geometry_columns where table_name is ?;" << layerName >> geomColumn;
+
+        std::vector<std::string> allColumns;
+        int geomColumnIndex = -1;
+        auto counter = 0;
+        db << "select name from pragma_table_info(?);" << layerName >> [&allColumns, &geomColumnIndex, &counter, geomColumn](std::string name) {
+            allColumns.push_back(name);
+            if (name == geomColumn) geomColumnIndex = counter;
+            ++counter;
+        };
+        if (geomColumnIndex == -1) throw std::invalid_argument("Invalid GeoPackage file");
+        auto columnCount = allColumns.size();
+
+        size_t entryCount;
+        std::string request = "select count(*) from " + layerName;
+        db << request >> entryCount;
+        if (entryCount == 0) return {};
+
+        auto threadCount = std::thread::hardware_concurrency();
+        std::vector<std::thread> threads; threads.reserve(threadCount);
+        std::mutex mtx;
+
+        std::vector<std::vector<std::string>> properties(entryCount);
+        std::vector<std::vector<color>> colors(entryCount);
+        std::vector<std::vector<uint8_t>> blobs(entryCount);
+        std::vector<std::vector<std::unique_ptr<Shape::Shape>>> shapes(entryCount);
+
+        std::string request2 = "select * from " + layerName;
+        auto rows = db << request2;
+
+        counter = 0;
+        for (auto&& row : rows) {
+            properties[counter] = std::vector<std::string>(columnCount);
+            for (auto c = 0; c < geomColumnIndex; ++c) {
+                row >> properties[counter][c];
+            }
+            row >> blobs[counter];
+            for (auto c = geomColumnIndex+1; c < columnCount; ++c) {
+                row >> properties[counter][c];
+            }
+            ++counter;
+        }
+
+        for (auto i = 0; i < threadCount; ++i) {
+            threads.emplace_back([this, i, threadCount, &mtx, layerName, boundariesNotSet, entryCount, &bounds, &blobs, &shapes, &properties, &allColumns, &params, &colors]() {
+                size_t threadBegin = (float)i/threadCount*entryCount;
+                size_t threadEnd = (float)(i+1)/threadCount*entryCount;
+                for (auto index = threadBegin; index < threadEnd; ++index) {
+
+                    // GeoPackageBinaryHeader
+                    bool littleEndianForHeader;
+                    int envelopeSize;
+
+                    // bytes 0 and 1 must be "GP"
+                    if (!(blobs[index][0] == Gpkg::magic_1 && blobs[index][1] == Gpkg::magic_2)) throw std::invalid_argument(layerName + ": Geometry invalid at row " + std::to_string(index));
+                    // byte 2 is GP version, irrelevant to the program
+
+                    // byte 3 indicates flags
+                    {
+                        // 7 6 5 4 3 2 1 0
+                        if ((blobs[index][3] & 0b00010000) != 0) continue; // bit 4 indicates empty geometry
+                        switch(blobs[index][3] & 0b00001110) { // bits 3,2,1 indicate the type of the envelope
+                            case Gpkg::envelope32: envelopeSize = 32; break;
+                            case Gpkg::envelope48_1: case Gpkg::envelope48_2: envelopeSize = 48; break;
+                            case Gpkg::envelope64: envelopeSize = 64; break;
+                            default: throw std::invalid_argument(layerName + ": Invalid geometry header at row " + std::to_string(index));
+                        }
+                        littleEndianForHeader = (blobs[index][3] & 0b00000001) != 0; // bit 0 indicates endianness for the rest of the header
+                    }
+
+                    // the next 4 bytes indicate the id of the SRS, irrelevant to the program
+                    // afterwards comes the envelope (bounding box)
+                    if (boundariesNotSet) {
+                        Util::Boundaries geomBounds;
+                        Util::copyBytesToVar(blobs[index],  8, &geomBounds.minX, littleEndianForHeader);
+                        Util::copyBytesToVar(blobs[index], 16, &geomBounds.maxX, littleEndianForHeader);
+                        Util::copyBytesToVar(blobs[index], 24, &geomBounds.minY, littleEndianForHeader);
+                        Util::copyBytesToVar(blobs[index], 32, &geomBounds.maxY, littleEndianForHeader);
+                        std::lock_guard lk (mtx);
+                        bounds.minX = std::min(bounds.minX, geomBounds.minX);
+                        bounds.maxX = std::max(bounds.maxX, geomBounds.maxX);
+                        bounds.minY = std::min(bounds.minY, geomBounds.minY);
+                        bounds.maxY = std::max(bounds.maxY, geomBounds.maxY);
+                    }
+
+                    // header ends, geometry begins
+                    auto beginIndex = shapes[index].size();
+                    auto numOfShapes = readWKBGeometry(std::move(blobs[index]), shapes[index], envelopeSize, index);
+                    for (auto s = beginIndex; s < beginIndex+numOfShapes; ++s) {
+                        colors[index].emplace_back(getColorForVectorShape(shapes[index][s].get(), params, properties[index], layerName, allColumns));
+                    }
+
+                    if (i == 0) {
+                        float br = (float)index+1;
+                        float nz = (float)entryCount/threadCount;
+                        emit sendProgress(br/nz*100);
+                    }
+
+                }
+            });
+        }
+        for (auto& thread : threads) thread.join();
+
+        std::vector<std::unique_ptr<Shape::Shape>> rv;
+
+        for (auto i = 0; i < entryCount; ++i) {
+            for (auto j = 0; j < shapes[i].size(); ++j) {
+                outputColors.push_back(std::move(colors[i][j]));
+                rv.push_back(std::move(shapes[i][j]));
+            }
+        }
+
+        params.boundaries = std::move(bounds);
+        return rv;
+    }
+    catch(const sqlite::sqlite_exception& e) {
+        Gui::ThrowError("SQL error " + QString::number(e.get_code()) + ": " + e.what() + " during " + QString::fromStdString(e.get_sql()));
+        emit sendProgressError();
+        return {};
+    }
+    catch(std::invalid_argument& e) {
+        Gui::ThrowError(QString::fromStdString(e.what()));
+        emit sendProgressError();
+        return {};
+    }
+}
+
+uint32_t ImageConverter::readWKBGeometry(std::vector<unsigned char> &&bytes, std::vector<std::unique_ptr<Shape::Shape>>& outShapes, int envelopeSize, int row)
+{
+    size_t pos = 8+envelopeSize;
+    bool littleEndian = bytes[pos] != 0;
+    uint32_t wkbType;
+    Util::copyBytesToVar(bytes, pos+1, &wkbType, littleEndian);
+    if (wkbType == Gpkg::wkbGeometryCollection || wkbType == Gpkg::wkbGeometryCollectionZ ||
+        wkbType == Gpkg::wkbGeometryCollectionM || wkbType == Gpkg::wkbGeometryCollectionZM) {
+        uint32_t numGeometries;
+        Util::copyBytesToVar(bytes, pos+1, &numGeometries, littleEndian);
+        for (auto i = 0; i < numGeometries; ++i) {
+            auto shape = Shape::fromWkbType(wkbType);
+            shape->loadFromBlob(bytes, pos);
+            shape->propertyId = row;
+            outShapes.push_back(std::move(shape));
+        }
+        return numGeometries;
+    }
+    else {
+        auto shape = Shape::fromWkbType(wkbType);
+        shape->loadFromBlob(bytes, pos);
+        shape->propertyId = row;
+        outShapes.push_back(std::move(shape));
+        return 1;
+    }
+
+}
 
 std::vector<std::unique_ptr<Shape::Shape> > ImageConverter::getAllShapesFromJson(const QString& path, std::optional<Util::Boundaries>& boundaries, std::vector<QJsonObject>& outputProperties)
 {
@@ -940,6 +1165,7 @@ std::vector<std::unique_ptr<Shape::Shape> > ImageConverter::getAllShapesFromJson
     return rv;
 }
 
+
 bool ImageConverter::GetMinAndMaxValues(const QString& path, double& min, double& max, int startX, int endX, int startY, int endY)
 {
     auto _min = std::numeric_limits<double>::max();
@@ -1033,8 +1259,4 @@ std::unique_ptr<double[]> ImageConverter::GetRawImageValues(const QString &path,
         return nullptr;
     }
     return buf;
-}
-
-ImageConverter::ImageConverter()
-{
 }
