@@ -163,6 +163,7 @@ ConfigureRGBForm::~ConfigureRGBForm()
 
 void ConfigureRGBForm::on_pushButton_clear_clicked()
 {
+    if (!Gui::GiveQuestion("Are you sure you want to clear everything?")) return;
     if (mode == Util::OutputMode::RGB_UserRanges) {
         ui->tableWidget->item(0,1)->setText("");
         ui->tableWidget->item(1,1)->setText("");
@@ -184,6 +185,10 @@ void ConfigureRGBForm::on_pushButton_clear_clicked()
         for (auto i = 0; i < ui->tableWidget->columnCount(); ++i) {
                 ui->tableWidget->item(0,i)->setText("");
         }
+    }
+    else if (mode == Util::OutputMode::RGB_Gpkg) {
+        for (auto& v : tables) v.clear();
+        loadTableData(tables[currentTableSelected]);
     }
 }
 

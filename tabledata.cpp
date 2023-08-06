@@ -7,6 +7,12 @@ TableData::TableData(const QStringList& headers)
     cells[0] = std::vector<QString>(headers.size());
 }
 
+void TableData::clear()
+{
+    cells = std::vector<std::vector<QString>>(1);
+    cells[0] = std::vector<QString>(headers.size());
+}
+
 TableData::operator LayerParams() const
 {
     LayerParams rv;
