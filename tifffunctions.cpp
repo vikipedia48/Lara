@@ -93,7 +93,7 @@ bool Tiff::LoadTiff(const QString &path, const Tiff::TileFunc_t& tileFunc, const
                 buf = _TIFFmalloc(TIFFScanlineSize(tif));
                 auto counter = 1;
                 size_t threadBegin = startY+(float)(i)/threadCount*(endY-startY+1);
-                size_t threadEnd = (float)(i+1)/threadCount*(endY-startY+1);
+                size_t threadEnd = startY+(float)(i+1)/threadCount*(endY-startY+1);
 
                 for (auto row = threadBegin; row < threadEnd; ++row) {
                     if (row < startY || row > endY) continue;
