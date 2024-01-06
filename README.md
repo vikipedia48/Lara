@@ -88,25 +88,5 @@ Examples of converted GeoJson's:
 ### Boundary coordinates
 The user can manually set the x and y coordinates which serve as boundaries for the image. This can be used to crop or resize the image as all shapes are placed relative to their difference from boundaries.  
 
-## GeoPackage
-The user can convert a GeoPackage file to a PNG. Only vector shapes (FEATURES) are supported.
-
-![image](https://github.com/vikipedia48/Lara/assets/37978310/3561b2eb-80e0-4134-a087-e532882296dc)
-
-### Styles
-Each GeoPackage feature can (or rather must) have a style with which it will be drawn on the image.
-
-Configuration of styles is done like this:
-
-![image](https://github.com/vikipedia48/Lara/assets/37978310/0ca099f7-ada1-4be2-87d5-aebbbaf26b21)
-![image](https://github.com/vikipedia48/Lara/assets/37978310/bea9d0ec-0127-43a2-84cd-7bdc9d6b20b2)
-
-A table will be loaded for each layer the GeoPackage contains, as well as a !ALL LAYERS! table. Each layer's table will contain custom columns which represent its attributes that serve to provide info about the features in the file. In the above images, the PNG will be created in this way:
-All features of the layer 'fclass_river' will be colored like this. If the feature has "customClass" in the "fclass" column, it will have the color defined in the second row. If a feature has *instead* 1000 set in the "code" column, it will have the color defined in the third row. If a feature doesn't match any of the defined conditions or if a mistake has occured during input, it will have the color defined in the first row. Inputting the first row's color is mandatory if you wish to configure any other colors.
-All other layers, which haven't been configured, will be colored like this. If whatever layer is called "LayerWhichIHaventConfigured", it will have the color defined in the second row. If a layer has *instead* MultiLineString as its specified geometry type, it will have the color defined in the third row. If a feature doesn't match any of the defined conditions or if a mistake has occured during input, it will have the color defined in the first row. Inputting the first row's color is mandatory even in the case you have configured all possible individual layers. 
-
-### Boundary coordinates
-The user can manually set the x and y coordinates which serve as boundaries for the image. This can be used to crop or resize the image as all shapes are placed relative to their difference from boundaries.  
-
 # Known bugs
 In geographic vector files, the y coordinates will (in most coordinate reference systems) likely go from south to north. This is true for the great majority of CRS's. As such, the application will create an image that is flipped by the Y axis. My solution is that all such images are by default flipped by the Y axis. This is a solution for the great majority of images. However, if the file's Y coordinates do indeed go from north to south, the image will be then in turn be flipped the wrong way. If this happens, you can fix the issue easily by flipping the image yourself in any image editing software.  
