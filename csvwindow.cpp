@@ -24,7 +24,7 @@ CSVWindow::CSVWindow(QWidget *parent) :
 
 CSVWindow::~CSVWindow()
 {
-    configWindow->close();
+    delete configWindow;
     delete ui;
 }
 

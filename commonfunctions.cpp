@@ -1,4 +1,6 @@
 #include "commonfunctions.h"
+#include "qtfunctions.h"
+#include <rapidcsv.h>
 #include <sstream>
 
 Color Color::fromString(const QString &str, bool& ok)
@@ -145,5 +147,14 @@ QString Util::csvShapeTypeToString(CsvShapeType type)
         case CsvShapeType::EmptySquare: return "EmptySquare";
         default: return "";
     }
+}
+
+std::vector<std::string> Util::getAllCsvColumns(const std::string& path)
+{
+    auto rv = std::vector<std::string>();
+    rapidcsv::Document doc(path);
+    rv = doc.GetColumnNames();
+    if (rv.empty()) Gui::ThrowError("Invalid csv file");
+    return rv;
 }
 

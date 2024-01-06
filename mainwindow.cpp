@@ -4,6 +4,9 @@
 #include "csvwindow.h"
 #include "geojsonwindow.h"
 #include "geopackagewindow.h"
+#include "newcsvwindow.h"
+#include "newgeojsonwindow.h"
+#include "newgeopackagewindow.h"
 
 
 MainWindow::MainWindow(QWidget *parent)
@@ -23,7 +26,7 @@ MainWindow::~MainWindow()
 void MainWindow::on_actionGeoTiff_triggered()
 {
     closeCurrentWindow();
-    currentWindow = new GeotiffWindow();
+    currentWindow = new GeotiffWindow(true);
     ui->widgetWindow->addWidget(currentWindow, 0, Qt::AlignmentFlag::AlignVCenter);
     currentWindow->show();
 }
@@ -32,7 +35,7 @@ void MainWindow::on_actionGeoTiff_triggered()
 void MainWindow::on_actionCSV_triggered()
 {
     closeCurrentWindow();
-    currentWindow = new CSVWindow();
+    currentWindow = new NewCsvWindow();
     ui->widgetWindow->addWidget(currentWindow, 0, Qt::AlignmentFlag::AlignVCenter);
     currentWindow->show();
 }
@@ -51,12 +54,48 @@ void MainWindow::closeCurrentWindow()
 void MainWindow::on_actionGeoJson_triggered()
 {
     closeCurrentWindow();
-    currentWindow = new GeoJsonWindow();
+    currentWindow = new NewGeoJsonWindow();
     ui->widgetWindow->addWidget(currentWindow, 0, Qt::AlignmentFlag::AlignVCenter);
     currentWindow->show();
 }
 
 void MainWindow::on_actionGeoPackage_triggered()
+{
+    closeCurrentWindow();
+    currentWindow = new NewGeoPackageWindow();
+    ui->widgetWindow->addWidget(currentWindow, 0, Qt::AlignmentFlag::AlignVCenter);
+    currentWindow->show();
+}
+
+
+void MainWindow::on_actionGeoTiff_Legacy_triggered()
+{
+    closeCurrentWindow();
+    currentWindow = new GeotiffWindow();
+    ui->widgetWindow->addWidget(currentWindow, 0, Qt::AlignmentFlag::AlignVCenter);
+    currentWindow->show();
+}
+
+
+void MainWindow::on_actionCSV_Legacy_triggered()
+{
+    closeCurrentWindow();
+    currentWindow = new CSVWindow();
+    ui->widgetWindow->addWidget(currentWindow, 0, Qt::AlignmentFlag::AlignVCenter);
+    currentWindow->show();
+}
+
+
+void MainWindow::on_actionGeoJson_Legacy_triggered()
+{
+    closeCurrentWindow();
+    currentWindow = new GeoJsonWindow();
+    ui->widgetWindow->addWidget(currentWindow, 0, Qt::AlignmentFlag::AlignVCenter);
+    currentWindow->show();
+}
+
+
+void MainWindow::on_actionGeoPackage_Legacy_triggered()
 {
     closeCurrentWindow();
     currentWindow = new GeoPackageWindow();

@@ -39,9 +39,13 @@ namespace Shape {
         GeometryType type;
         int propertyId = -1;
         virtual Util::Boundaries getBoundaries() = 0;
-        virtual void drawShape(cimg_library::CImg<unsigned char>* img, const color& color, const GeoJsonConvertParams& params) = 0;
-        virtual void drawShape(cimg_library::CImg<unsigned char>* img, const color& color, const Util::Boundaries& boundaries, uint32_t width, uint32_t height) = 0;
-        virtual void loadFromBlob(std::vector<unsigned char>& blob, size_t& startPos) = 0;
+        virtual void drawShape(cimg_library::CImg<uint8_t>* img,
+                               const color& color, const GeoJsonConvertParams& params) = 0;
+        virtual void drawShape(cimg_library::CImg<uint8_t>* img,
+                               const color& color, const Util::Boundaries& boundaries,
+                               uint32_t width, uint32_t height) = 0;
+        virtual void loadFromBlob(std::vector<uint8_t>& blob, size_t& startPos) = 0;
+        std::string geometryTypeToString();
     protected:
         Shape(GeometryType type) : type(type) {}
     };

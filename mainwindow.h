@@ -25,6 +25,14 @@ private slots:
 
     void on_actionGeoPackage_triggered();
 
+    void on_actionGeoTiff_Legacy_triggered();
+
+    void on_actionCSV_Legacy_triggered();
+
+    void on_actionGeoJson_Legacy_triggered();
+
+    void on_actionGeoPackage_Legacy_triggered();
+
 private:
     Ui::MainWindow *ui;
     QWidget* currentWindow;

@@ -6,6 +6,7 @@
 #include <tiff.h>
 #include <tiffio.h>
 #include <cstdint>
+#include <sol/sol.hpp>
 
 std::pair<unsigned int, unsigned int> Tiff::GetWidthAndHeight(const QString &path)
 {
@@ -22,7 +23,9 @@ std::pair<unsigned int, unsigned int> Tiff::GetWidthAndHeight(const QString &pat
     return rv;
 }
 
-bool Tiff::LoadTiff(const QString &path, const Tiff::TileFunc_t& tileFunc, const StripFunc_t& stripFunc, const ProgressUpdateFunc_t& progressFunc, int startY, int endY, int startX, int endX)
+bool Tiff::LoadTiff(const QString &path,
+                    const Tiff::TileFunc_t& tileFunc, const StripFunc_t& stripFunc, const ProgressUpdateFunc_t& progressFunc,
+                    int startY, int endY, int startX, int endX)
 {
     TIFF* tif = TIFFOpen(path.toStdString().data(),"r");
     if (!tif) {
@@ -42,7 +45,8 @@ bool Tiff::LoadTiff(const QString &path, const Tiff::TileFunc_t& tileFunc, const
         TIFFClose(tif);
         return false;
     }
-    if (!(properties.bitsPerSample == 8 || properties.bitsPerSample == 16 || properties.bitsPerSample == 32 || properties.bitsPerSample == 64) || properties.sampleFormat > SAMPLEFORMAT_IEEEFP) {
+    if (!(properties.bitsPerSample == 8 || properties.bitsPerSample == 16 || properties.bitsPerSample == 32 ||
+          properties.bitsPerSample == 64) || properties.sampleFormat > SAMPLEFORMAT_IEEEFP) {
         Gui::ThrowError("Unsupported file");
         TIFFClose(tif);
         return false;
@@ -53,7 +57,6 @@ bool Tiff::LoadTiff(const QString &path, const Tiff::TileFunc_t& tileFunc, const
     auto threadCount = std::thread::hardware_concurrency();
     std::vector<std::thread> threads; threads.reserve(threadCount);
     std::mutex mtx;
-
 
     for (auto i = 0; i < threadCount; ++i) {
         threads.emplace_back([i, threadCount, &mtx, &tif, &properties, &tileFunc, &stripFunc, &progressFunc, startX, endX, startY, endY]() {
@@ -308,5 +311,3 @@ std::vector<std::vector<double>> Tiff::GetVectorsFromTile(void *data, const Tiff
     return rv;
 
 }
-
-

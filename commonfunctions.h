@@ -43,9 +43,11 @@ enum class OutputMode {
     No,
     Grayscale16_TrueValue,
     Grayscale16_MinToMax,
+    Grayscale16_Lua,
     RGB_UserRanges,
     RGB_UserValues,
     RGB_Formula,
+    RGB_Lua,
     RGB_Points,
     RGB_Vector,
     RGB_Gpkg
@@ -83,6 +85,10 @@ enum class GpkgLayerType {
     Tiles,
     Attributes
 };
+enum class LuaFunctionTemplate {
+    RGBA,
+    GrayScale
+};
 
 double Remap(double value, double from1, double to1, double from2, double to2);
 color stringToColor(QString str, bool& ok);
@@ -93,9 +99,16 @@ QString csvShapeTypeToString(CsvShapeType type);
 void displayProgressBar(QProgressBar* bar, QLabel* label, QString desc);
 void hideProgressBar(QProgressBar* bar, QLabel* label);
 GpkgLayerType gpkgLayerTypeFromString(const std::string& str);
+std::vector<std::string> getAllCsvColumns(const std::string& path);
 
 struct Boundaries {
     double minX, maxX, minY, maxY;
+};
+
+struct GpkgLayer {
+    Util::GpkgLayerType dataType;
+    std::string tableName;
+    std::string identifier;
 };
 
 struct Profiler {
@@ -108,7 +121,7 @@ struct Profiler {
 
 #define MEASURE($fn) \
     []() { \
-        const auto _ = Util::Profiler(name); \
+        const auto _ = Util::Profiler("test"); \
         $fn; \
     }
 
