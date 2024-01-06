@@ -3,6 +3,7 @@
 
 #include "conversionparameters.h"
 #include "shapes.h"
+#include "sol/sol.hpp"
 
 #include <CImg.h>
 #include <QObject>
@@ -33,11 +34,17 @@ public:
     std::unique_ptr<uint8_t[]> CreateRGB_UserRanges(const QString& path, const std::map<double,color>& colorValues, bool useGradient, int startX, int startY, int endX, int endY);
     std::unique_ptr<uint8_t[]> CreateRGB_Formula(const QString& path, int startX, int startY, int endX, int endY);
     std::unique_ptr<uint8_t[]> CreateRGB_Points(const CsvConvertParams& params);
+    std::unique_ptr<uint8_t[]> CreateRGB_Points(const NewCsvConvertParams &params);
     cimg_library::CImg<uint8_t> CreateRGB_VectorShapes(GeoJsonConvertParams params, bool flipY = true); // pass by value
+    cimg_library::CImg<uint8_t> CreateRGB_VectorShapes(NewGeoJsonConvertParams params, bool flipY = true); // pass by value
     cimg_library::CImg<uint8_t> CreateRGB_GeoPackage(GeoPackageConvertParams params, bool flipY = true); // pass by value
+    cimg_library::CImg<uint8_t> CreateRGB_GeoPackage(NewGeoPackageConvertParams params, bool flipY = true); // pass by value
+    std::unique_ptr<uint16_t[]> CreateG16_Lua(const QString& path, const std::string& script, int startX, int startY, int endX, int endY);
+    std::unique_ptr<uint8_t[]> CreateRGB_Lua(const QString& path, const std::string& script, int startX, int startY, int endX, int endY);
 
     std::vector<std::unique_ptr<Shape::Shape>> getAllShapesFromJson(const QString& path, std::optional<Util::Boundaries>& boundaries, std::vector<QJsonObject>& outputProperties);
     std::vector<std::unique_ptr<Shape::Shape>> getAllShapesFromLayer(const QString& path, std::string layerName, GeoPackageConvertParams& params, std::vector<color>& outputColors, boolean calculateBoundaries);
+    std::vector<std::unique_ptr<Shape::Shape>> getAllShapesFromLayer(const QString& path, std::string layerName, NewGeoPackageConvertParams& params, std::vector<color>& outputColors, boolean calculateBoundaries);
 
     static uint32_t readWKBGeometry(std::vector<unsigned char>&& bytes, std::vector<std::unique_ptr<Shape::Shape>>& outShapes, int envelopeSize, int row);
     static std::vector<std::vector<std::string>> getRows(const std::string& path);
@@ -46,11 +53,18 @@ public:
     static color getColorForVectorShape(Shape::Shape* shape, const GeoPackageConvertParams& params, const std::vector<std::string>& properties, const std::string& layerName, const std::vector<std::string>& allColumns);
     static color getColorForVectorShape(Shape::Shape* shape, const GeoJsonConvertParams& params, const std::vector<QJsonObject>& properties);
     static int getStyleForCsvShape(const std::vector<std::string>& csvRow, const CsvConvertParams& params);
-    static std::uint16_t transformCellToG16TrueValue (double cell, double offset);
-    static std::uint16_t transformCellToG16MinToMax (double cell, const std::pair<double,double>& minAndMax);
+    static uint16_t transformCellToG16TrueValue (double cell, double offset);
+    static uint16_t transformCellToG16MinToMax (double cell, const std::pair<double,double>& minAndMax);
+    static uint16_t transformCellToG16Lua(double cell, const std::string& script);
     static color transformCellToRGBUserValues(double cell, const std::map<double,color>& colorValues);
     static color transformCellToRGBUserRanges(double cell, const std::map<double,color>& colorValues, bool useGradient);
     static color transformCellToRGBFormula(double cell);
+    static color transformCellToRGBLua(double cell, const std::string& script);
+    static void writeJsonValueToLuaParams(const QJsonValue& jsonValue, const QString& name, sol::table& luaTable);
+    static void writeJsonValueToLuaParams(const QJsonValue& jsonValue, const uint32_t index, sol::table& luaTable);
+    static void writeJsonObjectToLuaParams(const QJsonObject& jsonObj, sol::table& luaTable);
+
+
 };
 
 #endif // IMAGECONVERTER_H

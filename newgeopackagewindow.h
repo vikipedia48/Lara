@@ -1,23 +1,23 @@
-#ifndef GEOPACKAGEWINDOW_H
-#define GEOPACKAGEWINDOW_H
+#ifndef NEWGEOPACKAGEWINDOW_H
+#define NEWGEOPACKAGEWINDOW_H
 
-#include "configurergbform.h"
 #include "conversionparameters.h"
+#include "luacodewindow.h"
 
 #include <QCheckBox>
 #include <QWidget>
 
 namespace Ui {
-class GeoPackageWindow;
+class NewGeoPackageWindow;
 }
 
-class GeoPackageWindow : public QWidget
+class NewGeoPackageWindow : public QWidget
 {
     Q_OBJECT
 
 public:
-    explicit GeoPackageWindow(QWidget *parent = nullptr);
-    ~GeoPackageWindow();
+    explicit NewGeoPackageWindow(QWidget *parent = nullptr);
+    ~NewGeoPackageWindow();
 
 private slots:
     void on_pushButton_inputPath_clicked();
@@ -30,18 +30,16 @@ private slots:
 
     void on_pushButton_save_clicked();
 
-    void receiveParams(const GeoPackageConvertParams& params);
-    void receivePreviewRequest(const GeoPackageConvertParams& params);
+    void receiveLuaScript(const std::string& luaScript);
+    void receivePreviewRequest(const std::string& luaScript);
     void receiveProgressUpdate(uint32_t progress);
     void receiveProgressError();
     void receiveProgressReset(QString desc);
 
 private:
-
-
-    Ui::GeoPackageWindow *ui;
-    ConfigureRGBForm* configWindow;
-    GeoPackageConvertParams parameters;
+    Ui::NewGeoPackageWindow *ui;
+    LuaCodeWindow* luaCodeWindow;
+    NewGeoPackageConvertParams parameters;
 
     std::vector<Util::GpkgLayer> layers;
     std::vector<QCheckBox*> layerChecks;
@@ -52,4 +50,4 @@ private:
     void previewImage();
 };
 
-#endif // GEOPACKAGEWINDOW_H
+#endif // NEWGEOPACKAGEWINDOW_H

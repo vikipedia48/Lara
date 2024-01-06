@@ -102,7 +102,17 @@ color:black;</string>
     <addaction name="actionGeoJson"/>
     <addaction name="actionGeoPackage"/>
    </widget>
+   <widget class="QMenu" name="menuLegacy">
+    <property name="title">
+     <string>Legacy</string>
+    </property>
+    <addaction name="actionGeoTiff_Legacy"/>
+    <addaction name="actionCSV_Legacy"/>
+    <addaction name="actionGeoJson_Legacy"/>
+    <addaction name="actionGeoPackage_Legacy"/>
+   </widget>
    <addaction name="menuFile_Conversion"/>
+   <addaction name="menuLegacy"/>
   </widget>
   <action name="actionGeoTiff">
    <property name="text">
@@ -122,6 +132,26 @@ color:black;</string>
   <action name="actionGeoPackage">
    <property name="text">
     <string>GeoPackage</string>
+   </property>
+  </action>
+  <action name="actionGeoTiff_Legacy">
+   <property name="text">
+    <string>GeoTiff (Legacy)</string>
+   </property>
+  </action>
+  <action name="actionCSV_Legacy">
+   <property name="text">
+    <string>CSV (Legacy)</string>
+   </property>
+  </action>
+  <action name="actionGeoJson_Legacy">
+   <property name="text">
+    <string>GeoJson (Legacy)</string>
+   </property>
+  </action>
+  <action name="actionGeoPackage_Legacy">
+   <property name="text">
+    <string>GeoPackage (Legacy)</string>
    </property>
   </action>
  </widget>

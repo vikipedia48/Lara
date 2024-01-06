@@ -1,33 +1,33 @@
-#include "geopackagewindow.h"
+#include "newgeopackagewindow.h"
+#include "qtfunctions.h"
+#include "thirdparty/sqlite3/sqlite_modern_cpp.h"
 #include "imageconverter.h"
 #include "previewtask.h"
-#include "qtfunctions.h"
-#include "ui_geopackagewindow.h"
+#include "ui_newgeopackagewindow.h"
 #include "pngfunctions.h"
-#include "thirdparty/sqlite3/sqlite_modern_cpp.h"
 
 #include <QThreadPool>
 
-GeoPackageWindow::GeoPackageWindow(QWidget *parent) :
+NewGeoPackageWindow::NewGeoPackageWindow(QWidget *parent) :
     QWidget(parent),
-    ui(new Ui::GeoPackageWindow)
+    ui(new Ui::NewGeoPackageWindow)
 {
     ui->setupUi(this);
-    configWindow = nullptr;
+    luaCodeWindow = nullptr;
     ui->progressBar->setVisible(false);
     ui->label_progress->setVisible(false);
 }
 
-GeoPackageWindow::~GeoPackageWindow()
+NewGeoPackageWindow::~NewGeoPackageWindow()
 {
-    delete configWindow;
+    delete luaCodeWindow;
     delete ui;
 }
 
 #define displayProgressBar(desc) Util::displayProgressBar(ui->progressBar, ui->label_progress, desc);
 #define hideProgressBar() Util::hideProgressBar(ui->progressBar, ui->label_progress);
 
-void GeoPackageWindow::on_pushButton_inputPath_clicked()
+void NewGeoPackageWindow::on_pushButton_inputPath_clicked()
 {
     ui->lineEdit_inputPath->setText(Gui::GetInputPath("Choose GeoPackage file","GeoPackage files (*.gpkg)"));
     if (!ui->lineEdit_inputPath->text().isEmpty()) {
@@ -39,39 +39,38 @@ void GeoPackageWindow::on_pushButton_inputPath_clicked()
     }
 }
 
-void GeoPackageWindow::on_pushButton_configure_clicked()
+void NewGeoPackageWindow::on_pushButton_configure_clicked()
 {
     if (ui->lineEdit_inputPath->text().isEmpty()) {
         Gui::ThrowError("You must select the file first");
         return;
     }
-    if (configWindow != nullptr) {
-        if (configWindow->isVisible()) {
-            Gui::ThrowError("ConfigureRGB already opened.");
+    if (luaCodeWindow != nullptr) {
+        if (luaCodeWindow->isVisible()) {
+            Gui::ThrowError("LuaCodeWindow already opened.");
             return;
         }
     }
-    if (parameters.layerParams.has_value()) this->configWindow = new ConfigureRGBForm(ui->lineEdit_inputPath->text(), Util::OutputMode::RGB_Gpkg, parameters);
-    else this->configWindow = new ConfigureRGBForm(ui->lineEdit_inputPath->text(), Util::OutputMode::RGB_Gpkg);
-    connect(configWindow,&ConfigureRGBForm::sendGpkgParams,this,&GeoPackageWindow::receiveParams);
-    connect(configWindow,SIGNAL(sendPreviewRequest(const GeoPackageConvertParams&)),this,SLOT(receivePreviewRequest(const GeoPackageConvertParams&)));
-    configWindow->show();
+    luaCodeWindow = new LuaCodeWindow(Util::OutputMode::RGB_Gpkg, parameters.luaScript.value_or(""));
+    connect(luaCodeWindow,&LuaCodeWindow::sendCode,this,&NewGeoPackageWindow::receiveLuaScript);
+    connect(luaCodeWindow,&LuaCodeWindow::sendPreviewRequest,this,&NewGeoPackageWindow::receivePreviewRequest);
+    luaCodeWindow->show();
 }
 
-
-void GeoPackageWindow::on_pushButton_preview_clicked()
+void NewGeoPackageWindow::on_pushButton_preview_clicked()
 {
     previewImage();
 }
 
-void GeoPackageWindow::on_pushButton_reset_clicked()
+
+void NewGeoPackageWindow::on_pushButton_reset_clicked()
 {
     if (!Gui::GiveQuestion("Are you sure you want to reset your settings?")) {
         return;
     }
-    if (configWindow != nullptr) {
-        configWindow->close();
-        configWindow = nullptr;
+    if (luaCodeWindow != nullptr) {
+        luaCodeWindow->close();
+        luaCodeWindow = nullptr;
     }
     ui->lineEdit_inputPath->clear();
     ui->pushButton_inputPath->setEnabled(true);
@@ -88,34 +87,34 @@ void GeoPackageWindow::on_pushButton_reset_clicked()
     Util::changeSuccessState(ui->label_success, Util::SuccessStateColor::Red);
 }
 
-void GeoPackageWindow::receiveParams(const GeoPackageConvertParams &params)
+void NewGeoPackageWindow::receiveLuaScript(const std::string &script)
 {
-    parameters = params;
+    parameters.luaScript = script;
     Util::changeSuccessState(ui->label_success, Util::SuccessStateColor::Green);
 }
 
-void GeoPackageWindow::receivePreviewRequest(const GeoPackageConvertParams &params)
+void NewGeoPackageWindow::receivePreviewRequest(const std::string &script)
 {
-    parameters = params;
+    parameters.luaScript = script;
     previewImage();
 }
 
-void GeoPackageWindow::receiveProgressUpdate(uint32_t progress)
+void NewGeoPackageWindow::receiveProgressUpdate(uint32_t progress)
 {
     ui->progressBar->setValue(progress);
 }
 
-void GeoPackageWindow::receiveProgressError()
+void NewGeoPackageWindow::receiveProgressError()
 {
     hideProgressBar();
 }
 
-void GeoPackageWindow::receiveProgressReset(QString desc)
+void NewGeoPackageWindow::receiveProgressReset(QString desc)
 {
     displayProgressBar(desc);
 }
 
-bool GeoPackageWindow::loadLayers(const QString &path)
+bool NewGeoPackageWindow::loadLayers(const QString &path)
 {
     try {
         sqlite::database db(path.toStdString());
@@ -142,14 +141,14 @@ bool GeoPackageWindow::loadLayers(const QString &path)
     }
 }
 
-bool GeoPackageWindow::checkInput()
+bool NewGeoPackageWindow::checkInput()
 {
     if (std::count_if(layerChecks.begin(), layerChecks.end(), [](QCheckBox* box) { return box->isChecked(); }) == 0) {
         Gui::ThrowError("You must select at least one layer to convert");
         return false;
     }
-    if (!parameters.layerParams.has_value()) {
-        Gui::ThrowError("You must configure the image first");
+    if (!parameters.luaScript.has_value()) {
+        Gui::ThrowError("You must configure the Lua script first");
         return false;
     }
     auto startX = ui->doubleSpinBox_startX->value();
@@ -165,7 +164,7 @@ bool GeoPackageWindow::checkInput()
     return true;
 }
 
-void GeoPackageWindow::setParameters()
+void NewGeoPackageWindow::setParameters()
 {
     auto startX = ui->doubleSpinBox_startX->value();
     auto startY = ui->doubleSpinBox_startY->value();
@@ -184,21 +183,21 @@ void GeoPackageWindow::setParameters()
     parameters.height = ui->lineEdit_height->value();
 }
 
-void GeoPackageWindow::previewImage()
+void NewGeoPackageWindow::previewImage()
 {
     if (!checkInput()) return;
     setParameters();
     auto io = ImageConverter();
-    connect(&io, &ImageConverter::sendProgress, this, &GeoPackageWindow::receiveProgressUpdate, Qt::DirectConnection);
-    connect(&io, &ImageConverter::sendProgressError, this, &GeoPackageWindow::receiveProgressError, Qt::DirectConnection);
-    connect(&io, &ImageConverter::sendProgressReset, this, &GeoPackageWindow::receiveProgressReset, Qt::DirectConnection);
+    connect(&io, &ImageConverter::sendProgress, this, &NewGeoPackageWindow::receiveProgressUpdate, Qt::DirectConnection);
+    connect(&io, &ImageConverter::sendProgressError, this, &NewGeoPackageWindow::receiveProgressError, Qt::DirectConnection);
+    connect(&io, &ImageConverter::sendProgressReset, this, &NewGeoPackageWindow::receiveProgressReset, Qt::DirectConnection);
     auto img = io.CreateRGB_GeoPackage(parameters);
     auto task = new PreviewTask<uint8_t>(img);
     QThreadPool::globalInstance()->start(task);
     hideProgressBar();
 }
 
-void GeoPackageWindow::on_pushButton_save_clicked()
+void NewGeoPackageWindow::on_pushButton_save_clicked()
 {
     if (!checkInput()) return;
     auto savePath = Gui::GetSavePath();
@@ -207,10 +206,11 @@ void GeoPackageWindow::on_pushButton_save_clicked()
     setParameters();
 
     auto io = ImageConverter();
-    connect(&io, &ImageConverter::sendProgress, this, &GeoPackageWindow::receiveProgressUpdate, Qt::DirectConnection);
-    connect(&io, &ImageConverter::sendProgressError, this, &GeoPackageWindow::receiveProgressError, Qt::DirectConnection);
-    connect(&io, &ImageConverter::sendProgressReset, this, &GeoPackageWindow::receiveProgressReset, Qt::DirectConnection);
+    connect(&io, &ImageConverter::sendProgress, this, &NewGeoPackageWindow::receiveProgressUpdate, Qt::DirectConnection);
+    connect(&io, &ImageConverter::sendProgressError, this, &NewGeoPackageWindow::receiveProgressError, Qt::DirectConnection);
+    connect(&io, &ImageConverter::sendProgressReset, this, &NewGeoPackageWindow::receiveProgressReset, Qt::DirectConnection);
     auto img = io.CreateRGB_GeoPackage(parameters);
     Png::SavePng(img, savePath);
     hideProgressBar();
 }
+

@@ -6,6 +6,7 @@
 #include "commonfunctions.h"
 #include "configurergbform.h"
 #include "conversionparameters.h"
+#include "luacodewindow.h"
 
 namespace Ui {
 class GeotiffWindow;
@@ -17,6 +18,7 @@ class GeotiffWindow : public QWidget
 
 public:
     explicit GeotiffWindow(QWidget *parent = nullptr);
+    GeotiffWindow(bool legacy, QWidget* parent = nullptr);
     ~GeotiffWindow();
 
 private slots:
@@ -41,13 +43,18 @@ public slots:
     void receiveGradient(bool yes);
     void receivePreviewRequest(const std::map<double,color>& colorMap, bool gradient);
     void receivePreviewRequest(const std::map<double,color>& colorMap);
+    void receivePreviewRequest(const std::string& luaScript);
     void receiveProgressUpdate(uint32_t progress);
     void receiveProgressError();
+    void receiveProgressReset(QString desc);
+    void receiveLuaScript(const std::string& code);
 
 private:
     Ui::GeotiffWindow *ui;
     ConfigureRGBForm* configWindow;
+    LuaCodeWindow* luaCodeWindow;
     TiffConvertParams parameters;
+    std::vector<Util::OutputMode> outputModes;
 
     bool checkInput();
     void setParameters();
@@ -55,6 +62,7 @@ private:
     void previewImage();
     void previewImage(const std::map<double,color>& colorMap, bool gradient);
     void previewImage(const std::map<double,color>& colorMap);
+    void previewImage(const std::string& luaScript);
     void getTileSize(int& tileSizeX, int& tileSizeY, std::pair<int,int> widthAndHeight);
 
     Util::TileMode getTileModeSelected();

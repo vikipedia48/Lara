@@ -159,36 +159,6 @@
            <verstretch>0</verstretch>
           </sizepolicy>
          </property>
-         <item>
-          <property name="text">
-           <string>Select</string>
-          </property>
-         </item>
-         <item>
-          <property name="text">
-           <string>GrayScale16_TrueValue</string>
-          </property>
-         </item>
-         <item>
-          <property name="text">
-           <string>GrayScale16_MinToMax</string>
-          </property>
-         </item>
-         <item>
-          <property name="text">
-           <string>RGB_UserRanges</string>
-          </property>
-         </item>
-         <item>
-          <property name="text">
-           <string>RGB_UserValues</string>
-          </property>
-         </item>
-         <item>
-          <property name="text">
-           <string>RGB_Formula</string>
-          </property>
-         </item>
         </widget>
        </item>
        <item row="3" column="2">

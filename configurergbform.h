@@ -79,9 +79,6 @@ private:
     GeoPackageConvertParams prepareGpkgParams(bool& ok);
 
     bool getPropertiesFromGeoJson(const QString& path, QJsonObject& outputProperties);
-    std::vector<std::string> getAllCsvColumns(const std::string& path);
-
-
 
 };
 

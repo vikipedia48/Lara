@@ -457,3 +457,16 @@ Shape::LinearRing::LinearRing(std::vector<unsigned char> &blob, size_t& startPos
         startPos+=SIZE(wkbType);
     }
 }
+
+std::string Shape::Shape::geometryTypeToString()
+{
+    switch(type) {
+        case GeometryType::Point: return "Point";
+        case GeometryType::MultiPoint: return "MultiPoint";
+        case GeometryType::LineString: return "LineString";
+        case GeometryType::MultiLineString: return "MultiLineString";
+        case GeometryType::Polygon: return "Polygon";
+        case GeometryType::MultiPolygon: return "MultiPolygon";
+        default: return "Error";
+    }
+}

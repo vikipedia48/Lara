@@ -17,6 +17,7 @@
 #include <rapidcsv.h>
 
 #include <sqlite3/sqlite_modern_cpp.h>
+#include <sol/sol.hpp>
 
 
 std::vector<std::vector<std::string> > ImageConverter::getRows(const std::string& path)
@@ -232,6 +233,104 @@ uint16_t ImageConverter::transformCellToG16MinToMax(double cell, const std::pair
     return value;
 }
 
+uint16_t ImageConverter::transformCellToG16Lua(double cell, const std::string& script)
+{
+    sol::state lua;
+    lua.open_libraries(sol::lib::base, sol::lib::table);
+    lua.script(script);
+    //lua["params"] = lua.create_table_with("val", cell);
+    auto map = std::map<std::string, double> { {"val", cell } };
+    //auto params = lua.create_table_with("val", cell);
+    auto params = sol::as_table_t<std::map<std::string, double>>(map);
+    sol::function func = lua["color"];
+    auto result = func(params);
+    sol::table color = result;
+    uint16_t rv = color.get_or("value", 0);
+    return rv;
+}
+
+color ImageConverter::transformCellToRGBLua(double cell, const std::string &script)
+{
+    color rv = {0,0,0,0};
+    sol::state lua;
+    lua.open_libraries(sol::lib::base);
+    auto result = lua.script(script + "\nparams = {}\nparams[\"val\"] = " + std::to_string(cell) + ";\ncolor(params");
+    if (!result.valid()) return rv;
+    sol::table table = result;
+    rv[0] = table["r"];
+    rv[1] = table["g"];
+    rv[2] = table["b"];
+    rv[3] = table["a"];
+    return rv;
+}
+
+void ImageConverter::writeJsonValueToLuaParams(const QJsonValue &jsonValue, const QString& name, sol::table &luaTable)
+{
+    auto propName = name.toStdString();
+    if (jsonValue.isBool()) {
+        luaTable[propName] = jsonValue.toBool();
+    }
+    else if (jsonValue.isString()) {
+        luaTable[propName] = jsonValue.toString().toStdString();
+    }
+    else if (jsonValue.isDouble()) {
+        luaTable[propName] = jsonValue.toDouble();
+    }
+    else if (jsonValue.isNull() || jsonValue.isUndefined()) {
+        luaTable[propName] = sol::lua_nil;
+    }
+    else if (jsonValue.isObject()) {
+        sol::table newTable = luaTable.create_with();
+        luaTable[propName] = newTable;
+        writeJsonObjectToLuaParams(jsonValue.toObject(), newTable);
+    }
+    else if (jsonValue.isArray()) {
+        sol::table newTable = luaTable.create_with();
+        luaTable[propName] = newTable;
+        auto jsonArray = jsonValue.toArray();
+        for (uint32_t i = 0; i < jsonArray.size(); ++i) {
+            writeJsonValueToLuaParams(jsonArray[i], i, newTable);
+        }
+    }
+}
+
+void ImageConverter::writeJsonValueToLuaParams(const QJsonValue &jsonValue, const uint32_t index, sol::table &luaTable)
+{
+    auto propName = index;
+    if (jsonValue.isBool()) {
+        luaTable[propName] = jsonValue.toBool();
+    }
+    else if (jsonValue.isString()) {
+        luaTable[propName] = jsonValue.toString().toStdString();
+    }
+    else if (jsonValue.isDouble()) {
+        luaTable[propName] = jsonValue.toDouble();
+    }
+    else if (jsonValue.isNull() || jsonValue.isUndefined()) {
+        luaTable[propName] = sol::lua_nil;
+    }
+    else if (jsonValue.isObject()) {
+        sol::table newTable = luaTable.create_with();
+        luaTable[propName] = newTable;
+        writeJsonObjectToLuaParams(jsonValue.toObject(), newTable);
+    }
+    else if (jsonValue.isArray()) {
+        sol::table newTable = luaTable.create_with();
+        luaTable[propName] = newTable;
+        auto jsonArray = jsonValue.toArray();
+        for (uint32_t i = 0; i < jsonArray.size(); ++i) {
+            writeJsonValueToLuaParams(jsonArray[i], i, newTable);
+        }
+    }
+}
+
+void ImageConverter::writeJsonObjectToLuaParams(const QJsonObject &jsonObj, sol::table &luaTable)
+{
+    for(auto& key : jsonObj.keys()) {
+        writeJsonValueToLuaParams(jsonObj[key], key, luaTable);
+    }
+}
+
 color ImageConverter::transformCellToRGBUserValues(double cell, const std::map<double, color> &colorValues)
 {
     return colorValues.at(cell);
@@ -308,6 +407,15 @@ std::unique_ptr<uint16_t[]> ImageConverter::CreateImageData_G16(double* rawValue
     std::vector<std::thread> threads; threads.reserve(threadCount);
     for (auto t = 0; t < threadCount; ++t) {
         threads.emplace_back([t, threadCount, width, height, rawWidth, rawHeight, &rawValues, &buf, &params, this]() {
+            // lua
+            sol::state lua;
+            if (params.outputMode == Util::OutputMode::Grayscale16_Lua) {
+                lua.open_libraries(sol::lib::base, sol::lib::table, sol::lib::math);
+                lua.create_named_table("params");
+                lua.create_named_table("color");
+                lua.script(params.luaFunction.value());
+            }
+            //
             double cell;
             std::uint16_t value;
             size_t threadBegin, threadEnd;
@@ -324,6 +432,15 @@ std::unique_ptr<uint16_t[]> ImageConverter::CreateImageData_G16(double* rawValue
                             case Util::OutputMode::Grayscale16_TrueValue:
                                 buf[i] = transformCellToG16TrueValue(cell, params.offset.value());
                                 break;
+                            case Util::OutputMode::Grayscale16_Lua:
+                            {
+                                lua["params"]["val"] = cell;
+                                lua["color"]["value"] = 0;
+                                lua["set_color"]();
+                                double pixelValue = lua["color"]["value"];
+                                buf[i] = pixelValue;
+                            }
+                            break;
                             default:
                                 throw std::invalid_argument("unreachable code");
                         }
@@ -359,6 +476,15 @@ std::unique_ptr<uint16_t[]> ImageConverter::CreateImageData_G16(double* rawValue
                                 case Util::OutputMode::Grayscale16_TrueValue:
                                     buf[j*width+i] = transformCellToG16TrueValue(cell, params.offset.value());
                                     break;
+                                case Util::OutputMode::Grayscale16_Lua:
+                                {
+                                    lua["params"]["val"] = cell;
+                                    lua["color"]["value"] = 0;
+                                    lua["set_color"]();
+                                    double pixelValue = lua["color"]["value"];
+                                    buf[j*width+i] = pixelValue;
+                                }
+                                break;
                                 default:
                                     throw std::invalid_argument("unreachable code");
                             }
@@ -383,6 +509,15 @@ std::unique_ptr<uint16_t[]> ImageConverter::CreateImageData_G16(double* rawValue
                                 case Util::OutputMode::Grayscale16_TrueValue:
                                     value = transformCellToG16TrueValue(cell, params.offset.value());
                                     break;
+                                case Util::OutputMode::Grayscale16_Lua:
+                                {
+                                    lua["params"]["val"] = cell;
+                                    lua["color"]["value"] = 0;
+                                    lua["set_color"]();
+                                    double pixelValue = lua["color"]["value"];
+                                    value = pixelValue;
+                                }
+                                break;
                                 default:
                                     throw std::invalid_argument("unreachable code");
                             }
@@ -440,6 +575,15 @@ std::unique_ptr<uint8_t[]> ImageConverter::CreateImageData_RGB(double* rawValues
     std::vector<std::thread> threads; threads.reserve(threadCount);
     for (auto t = 0; t < threadCount; ++t) {
         threads.emplace_back([t, threadCount, width, height, rawWidth, rawHeight, numberOfPixels, &params, &buf, &rawValues, this]() {
+            // lua
+            sol::state lua;
+            if (params.outputMode == Util::OutputMode::RGB_Lua) {
+                lua.open_libraries(sol::lib::base, sol::lib::table, sol::lib::math);
+                lua.create_named_table("params");
+                lua.create_named_table("color");
+                lua.script(params.luaFunction.value());
+            }
+            //
             double cell;
             color value;
             size_t threadBegin;
@@ -459,6 +603,18 @@ std::unique_ptr<uint8_t[]> ImageConverter::CreateImageData_RGB(double* rawValues
                                 break;
                             case Util::OutputMode::RGB_Formula:
                                 value = transformCellToRGBFormula(cell);
+                                break;
+                            case Util::OutputMode::RGB_Lua:
+                            {
+                                lua["params"]["val"] = cell;
+                                lua["color"]["r"] = 0;
+                                lua["color"]["g"] = 0;
+                                lua["color"]["b"] = 0;
+                                lua["color"]["a"] = 255;
+                                lua["set_color"]();
+                                double rgba[4] = {lua["color"]["r"], lua["color"]["g"], lua["color"]["b"], lua["color"]["a"]};
+                                value = {static_cast<unsigned char>(rgba[0]), static_cast<unsigned char>(rgba[1]), static_cast<unsigned char>(rgba[2]), static_cast<unsigned char>(rgba[3])};
+                            }
                                 break;
                             default:
                                 throw std::invalid_argument("unreachable code");
@@ -501,6 +657,18 @@ std::unique_ptr<uint8_t[]> ImageConverter::CreateImageData_RGB(double* rawValues
                                 case Util::OutputMode::RGB_Formula:
                                     value = transformCellToRGBFormula(cell);
                                     break;
+                                case Util::OutputMode::RGB_Lua:
+                                {
+                                    lua["params"]["val"] = cell;
+                                    lua["color"]["r"] = 0;
+                                    lua["color"]["g"] = 0;
+                                    lua["color"]["b"] = 0;
+                                    lua["color"]["a"] = 255;
+                                    lua["set_color"]();
+                                    double rgba[4] = {lua["color"]["r"], lua["color"]["g"], lua["color"]["b"], lua["color"]["a"]};
+                                    value = {static_cast<unsigned char>(rgba[0]), static_cast<unsigned char>(rgba[1]), static_cast<unsigned char>(rgba[2]), static_cast<unsigned char>(rgba[3])};
+                                }
+                                    break;
                                 default:
                                     throw std::invalid_argument("unreachable code");
                             }
@@ -532,6 +700,18 @@ std::unique_ptr<uint8_t[]> ImageConverter::CreateImageData_RGB(double* rawValues
                                 case Util::OutputMode::RGB_Formula:
                                     value = transformCellToRGBFormula(cell);
                                     break;
+                                case Util::OutputMode::RGB_Lua:
+                                {
+                                    lua["params"]["val"] = cell;
+                                    lua["color"]["r"] = 0;
+                                    lua["color"]["g"] = 0;
+                                    lua["color"]["b"] = 0;
+                                    lua["color"]["a"] = 255;
+                                    lua["set_color"]();
+                                    double rgba[4] = {lua["color"]["r"], lua["color"]["g"], lua["color"]["b"], lua["color"]["a"]};
+                                    value = {static_cast<unsigned char>(rgba[0]), static_cast<unsigned char>(rgba[1]), static_cast<unsigned char>(rgba[2]), static_cast<unsigned char>(rgba[3])};
+                                }
+                                    break;
                                 default:
                                     throw std::invalid_argument("unreachable code");
                             }
@@ -560,7 +740,8 @@ std::unique_ptr<uint8_t[]> ImageConverter::CreateImageData_RGB(double* rawValues
     return buf;
 }
 
-std::unique_ptr<uint16_t[]> ImageConverter::CreateG16_MinToMax(const QString &path, const std::pair<double, double>& minAndMax, int startX, int startY, int endX, int endY)
+std::unique_ptr<uint16_t[]> ImageConverter::CreateG16_MinToMax(const QString &path, const std::pair<double, double>& minAndMax,
+                                                               int startX, int startY, int endX, int endY)
 {
     auto width = (endX-startX+1);
     auto height = (endY-startY+1);
@@ -758,6 +939,117 @@ std::unique_ptr<unsigned char[]> ImageConverter::CreateRGB_Formula(const QString
     return buf;
 }
 
+
+std::unique_ptr<uint8_t[]> ImageConverter::CreateRGB_Points(const NewCsvConvertParams &params) {
+    constexpr auto numberOfChannels = 4;
+    auto numberOfPixels = params.width*params.height;
+
+    auto buf = std::unique_ptr<uint8_t[]>(new uint8_t[numberOfChannels*numberOfPixels]());
+    auto csv = getRows(params.inputPath.toStdString());
+    bool isAValidCoordinateFile = true;
+    auto _boundaries = getBoundaries(csv, params.coordinateIndexes, isAValidCoordinateFile); // this is run even if the boundaries are set by user in order to check for invalid csv file
+    if (!isAValidCoordinateFile) {
+        Gui::ThrowError("Invalid csv file (columns at " + QString::number(params.coordinateIndexes[0]) + " and " + QString::number(params.coordinateIndexes[1]) + " are not numbers)");
+        return buf;
+    }
+    auto columns = Util::getAllCsvColumns(params.inputPath.toStdString());
+    auto boundaries = params.boundaries.value_or(_boundaries);
+
+    auto threadCount = std::thread::hardware_concurrency();
+    std::vector<std::thread> threads; threads.reserve(threadCount);
+    for (auto i = 0; i < threadCount; ++i) {
+        threads.emplace_back([i, threadCount, numberOfPixels, &csv, &columns, &buf, &params, &boundaries, this]() {
+            // lua
+            sol::state lua;
+            lua.open_libraries(sol::lib::base, sol::lib::table, sol::lib::math);
+            lua.create_named_table("params");
+            lua.create_named_table("style");
+            lua.script(params.luaScript.value());
+            //
+
+            size_t threadBegin = (float)i/threadCount*csv.size();
+            size_t threadEnd = (float)(i+1)/threadCount*csv.size();
+            for (auto row = threadBegin; row < threadEnd; ++row) {
+                auto x = std::stod(csv[row][params.coordinateIndexes[0]]);
+                auto y = std::stod(csv[row][params.coordinateIndexes[1]]);
+                if (x < boundaries.minX || x > boundaries.maxX || y < boundaries.minY || y > boundaries.maxY) continue;
+                int32_t centerX = std::round(Util::Remap(x, boundaries.minX, boundaries.maxX, 0, params.width-1));
+                int32_t centerY = std::round(Util::Remap(y, boundaries.minY, boundaries.maxY, 0, params.height-1));
+                size_t pos = centerY*params.width+centerX;
+
+                lua["style"]["r"] = 0;
+                lua["style"]["g"] = 0;
+                lua["style"]["b"] = 0;
+                lua["style"]["a"] = 255;
+                lua["style"]["center_r"] = 0;
+                lua["style"]["center_g"] = 0;
+                lua["style"]["center_b"] = 0;
+                lua["style"]["center_a"] = 255;
+                lua["style"]["type"] = "Square";
+                lua["style"]["size"] = 5;
+                sol::table paramsTable = lua["params"];
+                paramsTable.clear();
+
+                for(auto i = 0; i < columns.size(); ++i) {
+                    paramsTable[columns[i]] = csv[row][i];
+                }
+                lua["set_color"]();
+                double center_r = lua["style"]["center_r"];
+                double center_g = lua["style"]["center_g"];
+                double center_b = lua["style"]["center_b"];
+                double center_a = lua["style"]["center_a"];
+
+                buf[pos] = center_r;
+                buf[pos+1*numberOfPixels] = center_g;
+                buf[pos+2*numberOfPixels] = center_b;
+                buf[pos+3*numberOfPixels] = center_a;
+
+                double _shapeSize = lua["style"]["size"];
+                uint32_t shapeSize = _shapeSize;
+                if (shapeSize < 2) continue;
+                int64_t lowerBoundX = centerX-shapeSize+1, upperBoundX = centerX+shapeSize-1, lowerBoundY = centerY-shapeSize+1, upperBoundY = centerY+shapeSize-1;
+                for (auto posX = lowerBoundX; posX <= upperBoundX; ++posX) {
+                    for (auto posY = lowerBoundY; posY <= upperBoundY; ++posY) {
+                        if (posX < 0 || posX >= params.width || posY < 0 || posY >= params.height) continue; // out of bounds
+                        int currPos = posY*params.width+posX;
+                        if (currPos == pos) continue; // is center
+
+                        bool doesShapeFillThisCell = true;
+                        std::string shapeType = lua["style"]["type"];
+                        if (shapeType == "EmptySquare") {
+                            doesShapeFillThisCell = posX == lowerBoundX || posX == upperBoundX || posY == lowerBoundY || posY == upperBoundY;
+                        }
+                        else if (shapeType == "Circle") {
+                            doesShapeFillThisCell = std::sqrt(std::pow(posX-centerX,2)+std::pow(posY-centerY,2)) < static_cast<double>(shapeSize-0.6);
+                        }
+                        else if (shapeType == "EmptyCircle") {
+                            doesShapeFillThisCell = std::sqrt(std::pow(posX-centerX,2)+std::pow(posY-centerY,2)) >= static_cast<double>(shapeSize-1) &&
+                                                    std::sqrt(std::pow(posX-centerX,2)+std::pow(posY-centerY,2)) < static_cast<double>(shapeSize-0.1);
+                        }
+                        if (!doesShapeFillThisCell) continue;
+
+                        double r = lua["style"]["r"];
+                        double g = lua["style"]["g"];
+                        double b = lua["style"]["b"];
+                        double a = lua["style"]["a"];
+                        buf[currPos] = r;
+                        buf[currPos+1*numberOfPixels] = g;
+                        buf[currPos+2*numberOfPixels] = b;
+                        buf[currPos+3*numberOfPixels] = a;
+                    }
+                }
+                if (i == 0) {
+                    float br = (float)row+1;
+                    float nz = (float)csv.size()/threadCount;
+                    emit sendProgress(br/nz*100);
+                }
+            }
+        });
+    }
+    for (auto& thread : threads) thread.join();
+    return buf;
+}
+
 std::unique_ptr<uint8_t[]> ImageConverter::CreateRGB_Points(const CsvConvertParams &params)
 {
     constexpr auto numberOfChannels = 4;
@@ -803,17 +1095,16 @@ std::unique_ptr<uint8_t[]> ImageConverter::CreateRGB_Points(const CsvConvertPara
                         if (posX < 0 || posX >= params.width || posY < 0 || posY >= params.height) continue; // out of bounds
                         int currPos = posY*params.width+posX;
                         if (currPos == pos) continue; // is center
-                        if (buf[currPos] == centerColor[0] &&
-                            buf[currPos+1*numberOfPixels] == centerColor[1] &&
-                            buf[currPos+2*numberOfPixels] == centerColor[2] &&
-                            buf[currPos+3*numberOfPixels] == centerColor[3]) continue;
-                        // is some other center
 
                         bool doesShapeFillThisCell = true;
                         switch(params.shapes[styleIndex].first) {
-                            case Util::CsvShapeType::EmptySquare: doesShapeFillThisCell = posX == lowerBoundX || posX == upperBoundX || posY == lowerBoundY || posY == upperBoundY; break;
-                            case Util::CsvShapeType::Circle: doesShapeFillThisCell = std::sqrt(std::pow(posX-centerX,2)+std::pow(posY-centerY,2)) < static_cast<double>(shapeSize-0.6); break;
-                            case Util::CsvShapeType::EmptyCircle: doesShapeFillThisCell = std::sqrt(std::pow(posX-centerX,2)+std::pow(posY-centerY,2)) >= static_cast<double>(shapeSize-1) && std::sqrt(std::pow(posX-centerX,2)+std::pow(posY-centerY,2)) < static_cast<double>(shapeSize-0.1); break;
+                            case Util::CsvShapeType::EmptySquare:
+                            doesShapeFillThisCell = posX == lowerBoundX || posX == upperBoundX || posY == lowerBoundY || posY == upperBoundY; break;
+                            case Util::CsvShapeType::Circle:
+                            doesShapeFillThisCell = std::sqrt(std::pow(posX-centerX,2)+std::pow(posY-centerY,2)) < static_cast<double>(shapeSize-0.6); break;
+                            case Util::CsvShapeType::EmptyCircle:
+                            doesShapeFillThisCell = std::sqrt(std::pow(posX-centerX,2)+std::pow(posY-centerY,2)) >= static_cast<double>(shapeSize-1) &&
+                                                    std::sqrt(std::pow(posX-centerX,2)+std::pow(posY-centerY,2)) < static_cast<double>(shapeSize-0.1); break;
                             default: break;
                         }
                         if (!doesShapeFillThisCell) continue;
@@ -870,7 +1161,93 @@ cimg_library::CImg<uint8_t> ImageConverter::CreateRGB_VectorShapes(GeoJsonConver
     return img;
 }
 
+cimg_library::CImg<uint8_t> ImageConverter::CreateRGB_VectorShapes(NewGeoJsonConvertParams params, bool flipY)
+{
+    cimg_library::CImg<uint8_t> img(params.width, params.height, 1, 4);
+    auto properties = std::vector<QJsonObject>();
+
+    auto allShapes = getAllShapesFromJson(params.inputPath, params.boundaries, properties);
+    emit sendProgressReset("Creating the image...");
+    auto threadCount = std::thread::hardware_concurrency();
+    std::vector<std::thread> threads; threads.reserve(threadCount);
+    std::mutex mtx;
+    for (auto i = 0; i < threadCount; ++i) {
+        threads.emplace_back([i, threadCount, &mtx, &img, &allShapes, &params, &properties, this]() {
+            // lua
+            sol::state lua;
+            lua.open_libraries(sol::lib::base, sol::lib::table, sol::lib::math);
+            lua["shape_type"] = "";
+            lua.create_named_table("params");
+            lua.create_named_table("color");
+            lua.script(params.luaScript.value());
+            //
+            size_t threadBegin = (float)i/threadCount*allShapes.size();
+            size_t threadEnd = (float)(i+1)/threadCount*allShapes.size();
+            for (auto index = threadBegin; index < threadEnd; ++index) {
+                if (i == 0) {
+                    float br = (float)index+1;
+                    float nz = (float)allShapes.size()/threadCount;
+                    emit sendProgress(br/nz*100);
+                }
+                auto shape = allShapes[index].get();
+                auto propertyId = shape->propertyId;
+                auto type = shape->type;
+                if (propertyId == -1 || type == Shape::GeometryType::Error) continue;
+                lua["shape_type"] = shape->geometryTypeToString();
+                lua["color"]["r"] = 0;
+                lua["color"]["g"] = 0;
+                lua["color"]["b"] = 0;
+                lua["color"]["a"] = 255;
+                sol::table paramsTable = lua["params"];
+                paramsTable.clear();
+                writeJsonObjectToLuaParams(properties[propertyId], paramsTable);
+                lua["set_color"]();
+                double r = lua["color"]["r"];
+                double g = lua["color"]["g"];
+                double b = lua["color"]["b"];
+                double a = lua["color"]["a"];
+                color shapeColor = {static_cast<unsigned char>(r),static_cast<unsigned char>(g),static_cast<unsigned char>(b),static_cast<unsigned char>(a)};
+                std::lock_guard lk (mtx);
+                shape->drawShape(&img, shapeColor, params.boundaries.value(), params.width, params.height);
+            }
+        });
+    }
+    for (auto& thread : threads) thread.join();
+    if (flipY) img.mirror('y');
+    return img;
+}
+
+
+
 cimg_library::CImg<uint8_t> ImageConverter::CreateRGB_GeoPackage(GeoPackageConvertParams params, bool flipY)
+{
+    std::vector<std::vector<std::unique_ptr<Shape::Shape>>> allShapes(params.selectedLayers.size());
+    std::vector<std::vector<color>> allColors(params.selectedLayers.size());
+    boolean calculateBoundaries = !params.boundaries.has_value();
+    size_t totalNumberOfShapes = 0;
+
+    for (auto i = 0; i < params.selectedLayers.size(); ++i) {
+        emit sendProgressReset("Processing " + QString::fromStdString(params.selectedLayers[i]) + "...");
+        allShapes[i] = getAllShapesFromLayer(params.inputPath, params.selectedLayers[i], params, allColors[i], calculateBoundaries);
+        totalNumberOfShapes += allShapes[i].size();
+    }
+
+    cimg_library::CImg<uint8_t> img(params.width, params.height, 1, 4);
+    emit sendProgressReset("Creating the image...");
+    size_t counter = 1;
+    for (auto layer = 0; layer < params.selectedLayers.size(); ++layer) {
+        for (auto index = 0; index < allShapes[layer].size(); ++index) {
+            allShapes[layer][index]->drawShape(&img, allColors[layer][index], params.boundaries.value(), params.width, params.height);
+            float br = (float)counter++;
+            float nz = (float)totalNumberOfShapes;
+            emit sendProgress(br/nz*100);
+        }
+    }
+    if (flipY) img.mirror('y');
+    return img;
+}
+
+cimg_library::CImg<uint8_t> ImageConverter::CreateRGB_GeoPackage(NewGeoPackageConvertParams params, bool flipY)
 {
     std::vector<std::vector<std::unique_ptr<Shape::Shape>>> allShapes(params.selectedLayers.size());
     std::vector<std::vector<color>> allColors(params.selectedLayers.size());
@@ -999,6 +1376,166 @@ std::vector<std::unique_ptr<Shape::Shape> > ImageConverter::getAllShapesFromLaye
                     auto numOfShapes = readWKBGeometry(std::move(blobs[index]), shapes[index], envelopeSize, index);
                     for (auto s = beginIndex; s < beginIndex+numOfShapes; ++s) {
                         colors[index].emplace_back(getColorForVectorShape(shapes[index][s].get(), params, properties[index], layerName, allColumns));
+                    }
+
+                    if (i == 0) {
+                        float br = (float)index+1;
+                        float nz = (float)entryCount/threadCount;
+                        emit sendProgress(br/nz*100);
+                    }
+
+                }
+            });
+        }
+        for (auto& thread : threads) thread.join();
+
+        std::vector<std::unique_ptr<Shape::Shape>> rv;
+
+        for (auto i = 0; i < entryCount; ++i) {
+            for (auto j = 0; j < shapes[i].size(); ++j) {
+                outputColors.push_back(std::move(colors[i][j]));
+                rv.push_back(std::move(shapes[i][j]));
+            }
+        }
+
+        params.boundaries = std::move(bounds);
+        return rv;
+    }
+    catch(const sqlite::sqlite_exception& e) {
+        Gui::ThrowError("SQL error " + QString::number(e.get_code()) + ": " + e.what() + " during " + QString::fromStdString(e.get_sql()));
+        emit sendProgressError();
+        return {};
+    }
+    catch(std::invalid_argument& e) {
+        Gui::ThrowError(QString::fromStdString(e.what()));
+        emit sendProgressError();
+        return {};
+    }
+}
+
+std::vector<std::unique_ptr<Shape::Shape> > ImageConverter::getAllShapesFromLayer(const QString &path, std::string layerName, NewGeoPackageConvertParams &params, std::vector<color> &outputColors, boolean boundariesNotSet)
+{
+    try {
+        sqlite::database db(path.toStdString());
+
+        Util::Boundaries bounds;
+        if (boundariesNotSet) bounds = {std::numeric_limits<double>::max(), std::numeric_limits<double>::lowest(),std::numeric_limits<double>::max(), std::numeric_limits<double>::lowest()};
+        else bounds = params.boundaries.value();
+
+        std::string geomColumn;
+        db << "select column_name from gpkg_geometry_columns where table_name is ?;" << layerName >> geomColumn;
+
+        std::vector<std::string> allColumns;
+        int geomColumnIndex = -1;
+        auto counter = 0;
+        db << "select name from pragma_table_info(?);" << layerName >> [&allColumns, &geomColumnIndex, &counter, geomColumn](std::string name) {
+            allColumns.push_back(name);
+            if (name == geomColumn) geomColumnIndex = counter;
+            ++counter;
+        };
+        if (geomColumnIndex == -1) throw std::invalid_argument("Invalid GeoPackage file");
+        auto columnCount = allColumns.size();
+        auto propertyColumns = allColumns;
+        propertyColumns.erase(propertyColumns.begin() + geomColumnIndex);
+
+        size_t entryCount;
+        std::string request = "select count(*) from " + layerName;
+        db << request >> entryCount;
+        if (entryCount == 0) return {};
+
+        auto threadCount = std::thread::hardware_concurrency();
+        std::vector<std::thread> threads; threads.reserve(threadCount);
+        std::mutex mtx;
+
+        std::vector<std::vector<std::string>> properties(entryCount);
+        std::vector<std::vector<color>> colors(entryCount);
+        std::vector<std::vector<uint8_t>> blobs(entryCount);
+        std::vector<std::vector<std::unique_ptr<Shape::Shape>>> shapes(entryCount);
+
+        std::string request2 = "select * from " + layerName;
+        auto rows = db << request2;
+
+        counter = 0;
+        for (auto&& row : rows) {
+            properties[counter] = std::vector<std::string>(columnCount);
+            for (auto c = 0; c < geomColumnIndex; ++c) {
+                row >> properties[counter][c];
+            }
+            row >> blobs[counter];
+            for (auto c = geomColumnIndex+1; c < columnCount; ++c) {
+                row >> properties[counter][c];
+            }
+            ++counter;
+        }
+
+        for (auto i = 0; i < threadCount; ++i) {
+            threads.emplace_back([this, i, threadCount, &mtx, layerName, boundariesNotSet, entryCount, &bounds, &blobs, &shapes, &properties, &allColumns, &propertyColumns, &params, &colors]() {
+                // lua
+                sol::state lua;
+                lua.open_libraries(sol::lib::base, sol::lib::table, sol::lib::math);
+                lua["shape_type"] = "";
+                lua.create_named_table("params");
+                lua.create_named_table("color");
+                lua.script(params.luaScript.value());
+                //
+                size_t threadBegin = (float)i/threadCount*entryCount;
+                size_t threadEnd = (float)(i+1)/threadCount*entryCount;
+                for (auto index = threadBegin; index < threadEnd; ++index) {
+
+                    // GeoPackageBinaryHeader
+                    bool littleEndianForHeader;
+                    int envelopeSize;
+
+                    // bytes 0 and 1 must be "GP"
+                    if (!(blobs[index][0] == Gpkg::magic_1 && blobs[index][1] == Gpkg::magic_2)) throw std::invalid_argument(layerName + ": Geometry invalid at row " + std::to_string(index));
+                    // byte 2 is GP version, irrelevant to the program
+
+                    // byte 3 indicates flags
+                    {
+                        // 7 6 5 4 3 2 1 0
+                        if ((blobs[index][3] & 0b00010000) != 0) continue; // bit 4 indicates empty geometry
+                        switch(blobs[index][3] & 0b00001110) { // bits 3,2,1 indicate the type of the envelope
+                            case Gpkg::envelope32: envelopeSize = 32; break;
+                            case Gpkg::envelope48_1: case Gpkg::envelope48_2: envelopeSize = 48; break;
+                            case Gpkg::envelope64: envelopeSize = 64; break;
+                            default: throw std::invalid_argument(layerName + ": Invalid geometry header at row " + std::to_string(index));
+                        }
+                        littleEndianForHeader = (blobs[index][3] & 0b00000001) != 0; // bit 0 indicates endianness for the rest of the header
+                    }
+
+                    // the next 4 bytes indicate the id of the SRS, irrelevant to the program
+                    // afterwards comes the envelope (bounding box)
+                    if (boundariesNotSet) {
+                        Util::Boundaries geomBounds;
+                        Util::copyBytesToVar(blobs[index],  8, &geomBounds.minX, littleEndianForHeader);
+                        Util::copyBytesToVar(blobs[index], 16, &geomBounds.maxX, littleEndianForHeader);
+                        Util::copyBytesToVar(blobs[index], 24, &geomBounds.minY, littleEndianForHeader);
+                        Util::copyBytesToVar(blobs[index], 32, &geomBounds.maxY, littleEndianForHeader);
+                        std::lock_guard lk (mtx);
+                        bounds.minX = std::min(bounds.minX, geomBounds.minX);
+                        bounds.maxX = std::max(bounds.maxX, geomBounds.maxX);
+                        bounds.minY = std::min(bounds.minY, geomBounds.minY);
+                        bounds.maxY = std::max(bounds.maxY, geomBounds.maxY);
+                    }
+
+                    // header ends, geometry begins
+                    auto beginIndex = shapes[index].size();
+                    auto numOfShapes = readWKBGeometry(std::move(blobs[index]), shapes[index], envelopeSize, index);
+                    for (auto s = beginIndex; s < beginIndex+numOfShapes; ++s) {
+                        auto shape = shapes[index][s].get();
+                        lua["shape_type"] = shape->geometryTypeToString();
+                        lua["color"]["r"] = 0;
+                        lua["color"]["g"] = 0;
+                        lua["color"]["b"] = 0;
+                        lua["color"]["a"] = 0;
+                        sol::table paramsTable = lua["params"];
+                        paramsTable.clear();
+                        for (auto col = 0; col < propertyColumns.size(); ++col) {
+                            paramsTable[propertyColumns[col]] = properties[index][col];
+                        }
+                        lua["set_color"]();
+                        double r = lua["color"]["r"], g = lua["color"]["g"], b = lua["color"]["b"], a = lua["color"]["a"];
+                        colors[index].emplace_back(color({static_cast<unsigned char>(r),static_cast<unsigned char>(g),static_cast<unsigned char>(b),static_cast<unsigned char>(a)}));
                     }
 
                     if (i == 0) {

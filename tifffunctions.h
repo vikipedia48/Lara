@@ -25,6 +25,7 @@ using ProgressUpdateFunc_t = std::function<void (uint32_t)>;
 
 std::pair<unsigned int, unsigned int> GetWidthAndHeight(const QString& path);
 bool LoadTiff(const QString& path, const TileFunc_t& tileFunc, const StripFunc_t& stripFunc, const ProgressUpdateFunc_t& progressFunc, int startY = 0, int endY = -1, int startX = 0, int endX = -1);
+//bool LoadTiffWithLua(const QString& path,  const std::string& luaFunc, int startY = 0, int endY = -1, int startX = 0, int endX = -1);
 std::vector<double> GetVectorFromScanline(void* data, const TiffProperties& properties, int startX = 0, int endX = -1);
 std::vector<std::vector<double>> GetVectorsFromTile(void* data, const TiffProperties& properties, unsigned int tileWidth, unsigned int tileHeight);
 

@@ -5,6 +5,7 @@
 #include "pngfunctions.h"
 #include "previewtask.h"
 #include "imageconverter.h"
+#include "luacodewindow.h"
 
 #include <QDir>
 #include <QThreadPool>
@@ -15,14 +16,30 @@ GeotiffWindow::GeotiffWindow(QWidget *parent) :
 {
     ui->setupUi(this);
     this->configWindow = nullptr;
+    this->luaCodeWindow = nullptr;
     this->setWindowTitle("GeoTiff Converter");
     ui->progressBar->setVisible(false);
     ui->label_progress->setVisible(false);
+    outputModes = {Util::OutputMode::No, Util::OutputMode::Grayscale16_TrueValue, Util::OutputMode::Grayscale16_MinToMax, Util::OutputMode::Grayscale16_Lua, Util::OutputMode::RGB_UserValues, Util::OutputMode::RGB_UserRanges, Util::OutputMode::RGB_Formula, Util::OutputMode::RGB_Lua};
+    for (auto& mode : outputModes) ui->comboBox_outputMode->addItems(QStringList {"Select", "Grayscale16_TrueValue", "Grayscale16_MinToMax", "Grayscale16_Lua", "RGB_UserValues", "RGB_UserRanges", "RGB_Formula", "RGB_Lua"});
+}
+
+GeotiffWindow::GeotiffWindow(bool legacy, QWidget *parent) : QWidget(parent), ui(new Ui::GeotiffWindow)
+{
+    ui->setupUi(this);
+    this->configWindow = nullptr;
+    this->luaCodeWindow = nullptr;
+    this->setWindowTitle("GeoTiff Converter");
+    ui->progressBar->setVisible(false);
+    ui->label_progress->setVisible(false);
+    outputModes = {Util::OutputMode::No, Util::OutputMode::Grayscale16_MinToMax, Util::OutputMode::Grayscale16_Lua, Util::OutputMode::RGB_Lua};
+    ui->comboBox_outputMode->addItems(QStringList {"Select", "Grayscale16_MinToMax", "Grayscale16_Lua", "RGB_Lua"});
 }
 
 GeotiffWindow::~GeotiffWindow()
 {
-    configWindow->close();
+    delete configWindow;
+    delete luaCodeWindow;
     delete ui;
 }
 
@@ -49,13 +66,20 @@ void GeotiffWindow::on_pushButton_inputFile_clicked()
 
 void GeotiffWindow::on_comboBox_outputMode_activated(int index)
 {
+    auto outputMode = getOutputModeSelected();
     if (configWindow != nullptr) {
-        if (configWindow->isVisible() && configWindow->mode != getOutputModeSelected()) {
+        if (configWindow->isVisible() && configWindow->mode != outputMode) {
             Gui::ThrowError("Output mode changed. Closing ConfigureRGB window.");
             configWindow->close();
         }
     }
-    switch (getOutputModeSelected()) {
+    if (luaCodeWindow != nullptr) {
+        if (luaCodeWindow->isVisible() && luaCodeWindow->functionType != outputMode) {
+            Gui::ThrowError("Output mode changed. Closing LuaCode window.");
+            luaCodeWindow->close();
+        }
+    }
+    switch (outputMode) {
         case Util::OutputMode::No:
             Util::changeSuccessState(ui->label_outputModeSuccess, Util::SuccessStateColor::Red);
             break;
@@ -68,8 +92,12 @@ void GeotiffWindow::on_comboBox_outputMode_activated(int index)
         case Util::OutputMode::RGB_UserRanges: case Util::OutputMode::RGB_UserValues:
             Util::changeSuccessState(ui->label_outputModeSuccess, !parameters.colorValues.has_value() ? Util::SuccessStateColor::Red : Util::SuccessStateColor::Green);
             break;
+        case Util::OutputMode::Grayscale16_Lua: case Util::OutputMode::RGB_Lua:
+            Util::changeSuccessState(ui->label_outputModeSuccess, !parameters.luaFunction.has_value() ? Util::SuccessStateColor::Red : Util::SuccessStateColor::Green);
+            break;
         default: break; // unreachable
     }
+    parameters.luaFunction.reset();
 }
 
 
@@ -106,6 +134,14 @@ void GeotiffWindow::on_pushButton_outputModeConfigure_clicked()
             connect(configWindow,SIGNAL(sendPreviewRequest(const std::map<double,color>&)),this,SLOT(receivePreviewRequest(const std::map<double,color>&)));
             configWindow->show();
             break;
+        case Util::OutputMode::Grayscale16_Lua : case Util::OutputMode::RGB_Lua:
+            {
+                luaCodeWindow = new LuaCodeWindow(index, parameters.luaFunction.value_or(""));
+                connect(luaCodeWindow, &LuaCodeWindow::sendCode, this, &GeotiffWindow::receiveLuaScript);
+                connect(luaCodeWindow, SIGNAL(sendPreviewRequest(const std::string&)), this, SLOT(receivePreviewRequest(const std::string&)));
+                luaCodeWindow->show();
+            }
+            break;
         default: break; /* unreachable */
     }
 }
@@ -140,9 +176,14 @@ void GeotiffWindow::on_pushButton_reset_clicked()
         configWindow->close();
         configWindow = nullptr;
     }
+    if (luaCodeWindow != nullptr) {
+        luaCodeWindow->close();
+        luaCodeWindow = nullptr;
+    }
     parameters.colorValues.reset();
     parameters.gradient.reset();
     parameters.offset.reset();
+    parameters.luaFunction.reset();
     ui->lineEdit_inputFile->clear();
     ui->pushButton_inputFile->setEnabled(true);
     ui->comboBox_outputMode->setCurrentIndex(0);
@@ -211,7 +252,7 @@ Util::TileMode GeotiffWindow::getTileModeSelected()
 
 Util::OutputMode GeotiffWindow::getOutputModeSelected()
 {
-    return static_cast<Util::OutputMode>(ui->comboBox_outputMode->currentIndex());
+    return outputModes[ui->comboBox_outputMode->currentIndex()];
 }
 
 Util::ScaleMode GeotiffWindow::getScaleModeSelected()
@@ -229,6 +270,11 @@ void GeotiffWindow::receivePreviewRequest(const std::map<double, color> &colorMa
     previewImage(colorMap);
 }
 
+void GeotiffWindow::receivePreviewRequest(const std::string &luaScript)
+{
+    previewImage(luaScript);
+}
+
 void GeotiffWindow::receiveProgressUpdate(uint32_t progress)
 {
     ui->progressBar->setValue(progress);
@@ -237,6 +283,17 @@ void GeotiffWindow::receiveProgressUpdate(uint32_t progress)
 void GeotiffWindow::receiveProgressError()
 {
     hideProgressBar();
+}
+
+void GeotiffWindow::receiveProgressReset(QString desc)
+{
+    displayProgressBar(desc);
+}
+
+void GeotiffWindow::receiveLuaScript(const std::string &code)
+{
+    parameters.luaFunction = code;
+    Util::changeSuccessState(ui->label_outputModeSuccess, Util::SuccessStateColor::Green);
 }
 
 bool GeotiffWindow::checkInput()
@@ -248,6 +305,8 @@ bool GeotiffWindow::checkInput()
             case Util::OutputMode::No: throw std::invalid_argument("You must select the output mode"); break;
             case Util::OutputMode::RGB_UserRanges: case Util::OutputMode::RGB_UserValues:
                 if (!parameters.colorValues.has_value()) throw std::invalid_argument("Conversion settings aren't configured"); break;
+            case Util::OutputMode::RGB_Lua: case Util::OutputMode::Grayscale16_Lua:
+                if (!parameters.luaFunction.has_value()) throw std::invalid_argument("Lua conversion function isn't defined"); break;
             default: break;
         }
         auto widthAndHeight = Tiff::GetWidthAndHeight(inputPath);
@@ -297,6 +356,12 @@ void GeotiffWindow::previewImage(const std::map<double, color> &colorMap)
     previewImage();
 }
 
+void GeotiffWindow::previewImage(const std::string &luaScript)
+{
+    this->parameters.luaFunction = luaScript;
+    previewImage();
+}
+
 void GeotiffWindow::previewImage() {
     if (!checkInput()) return;
     setParameters();
@@ -306,14 +371,16 @@ void GeotiffWindow::previewImage() {
     auto io = ImageConverter();
     connect(&io, &ImageConverter::sendProgress, this, &GeotiffWindow::receiveProgressUpdate, Qt::DirectConnection);
     connect(&io, &ImageConverter::sendProgressError, this, &GeotiffWindow::receiveProgressError, Qt::DirectConnection);
+    connect(&io, &ImageConverter::sendProgressReset, this, &GeotiffWindow::receiveProgressReset, Qt::DirectConnection);
 
-    if (params.scaleMode != Util::ScaleMode::No) {
+    if (params.scaleMode != Util::ScaleMode::No || params.outputMode == Util::OutputMode::Grayscale16_Lua || params.outputMode == Util::OutputMode::RGB_Lua) {
         displayProgressBar("Reading raw image values...");
         auto rawValues = io.GetRawImageValues(params.inputPath, params.startX, params.endX, params.startY, params.endY);
         displayProgressBar("Creating the image...");
         if (params.outputMode == Util::OutputMode::RGB_UserValues ||
             params.outputMode == Util::OutputMode::RGB_UserRanges ||
-            params.outputMode == Util::OutputMode::RGB_Formula) {
+            params.outputMode == Util::OutputMode::RGB_Formula ||
+            params.outputMode == Util::OutputMode::RGB_Lua) {
             auto buf = io.CreateImageData_RGB(rawValues.get(), params, widthAndHeight);
             auto img = Png::CreatePngData(buf.get(), widthAndHeight, Util::PixelSize::ThirtyTwoBit);
             auto task = new PreviewTask<uint8_t>(img);
@@ -406,6 +473,7 @@ void GeotiffWindow::exportImage() {
     auto io = ImageConverter();
     connect(&io, &ImageConverter::sendProgress, this, &GeotiffWindow::receiveProgressUpdate, Qt::DirectConnection);
     connect(&io, &ImageConverter::sendProgressError, this, &GeotiffWindow::receiveProgressError, Qt::DirectConnection);
+    connect(&io, &ImageConverter::sendProgressReset, this, &GeotiffWindow::receiveProgressReset, Qt::DirectConnection);
 
     auto absoluteStartX = parameters.startX;
     auto absoluteStartY = parameters.startY;
@@ -414,15 +482,17 @@ void GeotiffWindow::exportImage() {
     auto absoluteWidthAndHeight = std::pair<unsigned int, unsigned int>(absoluteEndX-absoluteStartX+1, absoluteEndY-absoluteStartY+1);
     auto params = parameters;
 
-    if (params.scaleMode != Util::ScaleMode::No) {
+    if (params.scaleMode != Util::ScaleMode::No || params.outputMode == Util::OutputMode::Grayscale16_Lua || params.outputMode == Util::OutputMode::RGB_Lua) {
         displayProgressBar("Reading raw image values...");
         auto rawValues = io.GetRawImageValues(params.inputPath, params.startX, params.endX, params.startY, params.endY);
         displayProgressBar("Creating the image...");
         if (params.outputMode == Util::OutputMode::RGB_UserValues ||
             params.outputMode == Util::OutputMode::RGB_UserRanges ||
-            params.outputMode == Util::OutputMode::RGB_Formula) {
+            params.outputMode == Util::OutputMode::RGB_Formula ||
+            params.outputMode == Util::OutputMode::RGB_Lua) {
             auto buf = io.CreateImageData_RGB(rawValues.get(), params, absoluteWidthAndHeight);
             auto img = Png::CreatePngData(buf.get(), absoluteWidthAndHeight, Util::PixelSize::ThirtyTwoBit);
+            displayProgressBar("Compressing to PNG...");
             Png::SavePng(img, path);
         }
 
@@ -434,6 +504,7 @@ void GeotiffWindow::exportImage() {
             }
             auto buf = io.CreateImageData_G16(rawValues.get(), params, absoluteWidthAndHeight);
             auto img = Png::CreatePngData(buf.get(), absoluteWidthAndHeight, Util::PixelSize::SixteenBit);
+            displayProgressBar("Compressing to PNG...");
             Png::SavePng(img, path);
         }
         hideProgressBar();
@@ -461,6 +532,7 @@ void GeotiffWindow::exportImage() {
                         displayProgressBar("Creating " + QFileInfo(path).fileName() + "...");
                         auto buf = io.CreateG16_MinToMax(parameters.inputPath, parameters.minAndMax.value(), startX, startY, endX, endY);
                         auto img = Png::CreatePngData(buf.get(), tileWidthAndHeight, Util::PixelSize::SixteenBit);
+                        displayProgressBar("Compressing to PNG...");
                         Png::SavePng(img, path);
                     }
                     break;
@@ -468,6 +540,7 @@ void GeotiffWindow::exportImage() {
                     {
                         auto buf = io.CreateG16_TrueValue(parameters.inputPath, parameters.offset.value(), startX, startY, endX, endY);
                         auto img = Png::CreatePngData(buf.get(), tileWidthAndHeight, Util::PixelSize::SixteenBit);
+                        displayProgressBar("Compressing to PNG...");
                         Png::SavePng(img, path);
                     }
                     break;
@@ -475,6 +548,7 @@ void GeotiffWindow::exportImage() {
                     {
                         auto buf = io.CreateRGB_UserValues(parameters.inputPath, parameters.colorValues.value(), startX, startY, endX, endY);
                         auto img = Png::CreatePngData(buf.get(), tileWidthAndHeight, Util::PixelSize::ThirtyTwoBit);
+                        displayProgressBar("Compressing to PNG...");
                         Png::SavePng(img, path);
                     }
                 break;
@@ -482,6 +556,7 @@ void GeotiffWindow::exportImage() {
                     {
                         auto buf = io.CreateRGB_UserRanges(parameters.inputPath, parameters.colorValues.value(), parameters.gradient.value(), startX, startY, endX, endY);
                         auto img = Png::CreatePngData(buf.get(), tileWidthAndHeight, Util::PixelSize::ThirtyTwoBit);
+                        displayProgressBar("Compressing to PNG...");
                         Png::SavePng(img, path);
                     }
                     break;
@@ -489,6 +564,7 @@ void GeotiffWindow::exportImage() {
                     {
                         auto buf = io.CreateRGB_Formula(parameters.inputPath, startX, startY, endX, endY);
                         auto img = Png::CreatePngData(buf.get(), tileWidthAndHeight, Util::PixelSize::ThirtyTwoBit);
+                        displayProgressBar("Compressing to PNG...");
                         Png::SavePng(img, path);
                     }
                     break;

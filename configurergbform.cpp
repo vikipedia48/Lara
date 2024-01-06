@@ -397,7 +397,7 @@ void ConfigureRGBForm::on_pushButton_2_clicked()
         hideProgressBar();
     }
     else if (mode == Util::OutputMode::RGB_Points) {
-        auto columns = getAllCsvColumns(path.toStdString());
+        auto columns = Util::getAllCsvColumns(path.toStdString());
         if (columns.empty()) return;
         if (columns.size() == 1) {
             Gui::ThrowError("CSV file is valid, but only has 1 column, whereas 2 are needed to specify x and y");
@@ -620,15 +620,6 @@ bool ConfigureRGBForm::getPropertiesFromGeoJson(const QString &path, QJsonObject
         return false;
     }
     return true;
-}
-
-std::vector<std::string> ConfigureRGBForm::getAllCsvColumns(const std::string& path)
-{
-    auto rv = std::vector<std::string>();
-    rapidcsv::Document doc(path);
-    rv = doc.GetColumnNames();
-    if (rv.empty()) Gui::ThrowError("Invalid csv file");
-    return rv;
 }
 
 void ConfigureRGBForm::on_comboBox_gpkgLayer_activated(int index)

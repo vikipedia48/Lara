@@ -23,7 +23,7 @@ GeoJsonWindow::GeoJsonWindow(QWidget *parent) :
 
 GeoJsonWindow::~GeoJsonWindow()
 {
-    configWindow->close();
+    delete configWindow;
     delete ui;
 }
 
